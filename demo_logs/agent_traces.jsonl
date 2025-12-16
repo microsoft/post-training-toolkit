@@ -1,0 +1,76 @@
+{"episode_id": "ep_001", "step": 0, "type": "user_message", "content": "Find me a flight from NYC to Paris for next week", "timestamp": "2025-01-15T10:00:00Z"}
+{"episode_id": "ep_001", "step": 1, "type": "assistant_message", "content": "I'll search for flights from NYC to Paris for next week.", "tokens": 25}
+{"episode_id": "ep_001", "step": 2, "type": "tool_call", "tool": "search_flights", "args": {"origin": "NYC", "destination": "Paris", "date": "2025-01-22"}, "tokens": 40}
+{"episode_id": "ep_001", "step": 3, "type": "tool_result", "tool": "search_flights", "result": "Found 3 flights: Delta $450, Air France $520, United $480", "error": null}
+{"episode_id": "ep_001", "step": 4, "type": "assistant_message", "content": "I found 3 flights for you:\n1. Delta - $450\n2. Air France - $520\n3. United - $480\n\nWould you like me to book one of these?", "tokens": 45}
+{"episode_id": "ep_001", "step": 5, "type": "episode_end", "success": true, "reward": 1.0, "total_tokens": 110, "total_cost": 0.0022}
+{"episode_id": "ep_002", "step": 0, "type": "user_message", "content": "Book a hotel in Tokyo for March", "timestamp": "2025-01-15T10:05:00Z"}
+{"episode_id": "ep_002", "step": 1, "type": "assistant_message", "content": "I'll search for hotels in Tokyo for March.", "tokens": 20}
+{"episode_id": "ep_002", "step": 2, "type": "tool_call", "tool": "search_hotels", "args": {"city": "Tokyo", "month": "March"}, "tokens": 30}
+{"episode_id": "ep_002", "step": 3, "type": "tool_result", "tool": "search_hotels", "result": null, "error": "API rate limit exceeded"}
+{"episode_id": "ep_002", "step": 4, "type": "assistant_message", "content": "Let me try again...", "tokens": 10}
+{"episode_id": "ep_002", "step": 5, "type": "tool_call", "tool": "search_hotels", "args": {"city": "Tokyo", "month": "March"}, "tokens": 30}
+{"episode_id": "ep_002", "step": 6, "type": "tool_result", "tool": "search_hotels", "result": null, "error": "API rate limit exceeded"}
+{"episode_id": "ep_002", "step": 7, "type": "assistant_message", "content": "I'm having trouble with the hotel search. Let me try once more.", "tokens": 15}
+{"episode_id": "ep_002", "step": 8, "type": "tool_call", "tool": "search_hotels", "args": {"city": "Tokyo", "month": "March"}, "tokens": 30}
+{"episode_id": "ep_002", "step": 9, "type": "tool_result", "tool": "search_hotels", "result": null, "error": "API rate limit exceeded"}
+{"episode_id": "ep_002", "step": 10, "type": "assistant_message", "content": "I apologize, but I'm unable to search for hotels right now due to technical issues.", "tokens": 20}
+{"episode_id": "ep_002", "step": 11, "type": "episode_end", "success": false, "reward": 0.0, "total_tokens": 155, "total_cost": 0.0031}
+{"episode_id": "ep_003", "step": 0, "type": "user_message", "content": "What's the weather in London?", "timestamp": "2025-01-15T10:10:00Z"}
+{"episode_id": "ep_003", "step": 1, "type": "assistant_message", "content": "I'll check the weather in London for you.", "tokens": 15}
+{"episode_id": "ep_003", "step": 2, "type": "tool_call", "tool": "get_weather", "args": {"city": "London"}, "tokens": 20}
+{"episode_id": "ep_003", "step": 3, "type": "tool_result", "tool": "get_weather", "result": "London: 8°C, cloudy with light rain", "error": null}
+{"episode_id": "ep_003", "step": 4, "type": "assistant_message", "content": "The weather in London is currently 8°C (46°F), cloudy with light rain.", "tokens": 25}
+{"episode_id": "ep_003", "step": 5, "type": "episode_end", "success": true, "reward": 1.0, "total_tokens": 60, "total_cost": 0.0012}
+{"episode_id": "ep_004", "step": 0, "type": "user_message", "content": "Help me plan a trip to Japan", "timestamp": "2025-01-15T10:15:00Z"}
+{"episode_id": "ep_004", "step": 1, "type": "assistant_message", "content": "I'd be happy to help plan your trip to Japan! Let me search for some options.", "tokens": 20}
+{"episode_id": "ep_004", "step": 2, "type": "tool_call", "tool": "search_flights", "args": {"destination": "Tokyo"}, "tokens": 25}
+{"episode_id": "ep_004", "step": 3, "type": "tool_result", "tool": "search_flights", "result": "Multiple flights available to Tokyo", "error": null}
+{"episode_id": "ep_004", "step": 4, "type": "tool_call", "tool": "search_hotels", "args": {"city": "Tokyo"}, "tokens": 25}
+{"episode_id": "ep_004", "step": 5, "type": "tool_result", "tool": "search_hotels", "result": "Found 50+ hotels in Tokyo", "error": null}
+{"episode_id": "ep_004", "step": 6, "type": "tool_call", "tool": "search_attractions", "args": {"city": "Tokyo"}, "tokens": 25}
+{"episode_id": "ep_004", "step": 7, "type": "tool_result", "tool": "search_attractions", "result": "Top attractions: Senso-ji, Tokyo Tower, Shibuya Crossing", "error": null}
+{"episode_id": "ep_004", "step": 8, "type": "assistant_message", "content": "Great news! Here's what I found for your Japan trip:\n\n**Flights:** Multiple options available to Tokyo\n**Hotels:** 50+ hotels to choose from\n**Must-see attractions:** Senso-ji Temple, Tokyo Tower, Shibuya Crossing\n\nWould you like more specific details on any of these?", "tokens": 80}
+{"episode_id": "ep_004", "step": 9, "type": "episode_end", "success": true, "reward": 1.0, "total_tokens": 175, "total_cost": 0.0035}
+{"episode_id": "ep_005", "step": 0, "type": "user_message", "content": "Find restaurants in San Francisco", "timestamp": "2025-01-15T10:20:00Z"}
+{"episode_id": "ep_005", "step": 1, "type": "assistant_message", "content": "Searching for restaurants in San Francisco.", "tokens": 12}
+{"episode_id": "ep_005", "step": 2, "type": "tool_call", "tool": "search_restaurants", "args": {"city": "San Francisco"}, "tokens": 25}
+{"episode_id": "ep_005", "step": 3, "type": "tool_result", "tool": "search_restaurants", "result": null, "error": "Connection timeout"}
+{"episode_id": "ep_005", "step": 4, "type": "assistant_message", "content": "I encountered an issue. Let me try a different approach.", "tokens": 15}
+{"episode_id": "ep_005", "step": 5, "type": "tool_call", "tool": "web_search", "args": {"query": "best restaurants San Francisco"}, "tokens": 30}
+{"episode_id": "ep_005", "step": 6, "type": "tool_result", "tool": "web_search", "result": "Top results: State Bird Provisions, Lazy Bear, Benu...", "error": null}
+{"episode_id": "ep_005", "step": 7, "type": "assistant_message", "content": "Here are some top-rated restaurants in San Francisco:\n1. State Bird Provisions\n2. Lazy Bear\n3. Benu\n\nWould you like more details about any of these?", "tokens": 45}
+{"episode_id": "ep_005", "step": 8, "type": "episode_end", "success": true, "reward": 1.0, "total_tokens": 127, "total_cost": 0.0025}
+{"episode_id": "ep_006", "step": 0, "type": "user_message", "content": "Convert 100 USD to EUR", "timestamp": "2025-01-15T10:25:00Z"}
+{"episode_id": "ep_006", "step": 1, "type": "assistant_message", "content": "I'll convert 100 USD to EUR for you.", "tokens": 15}
+{"episode_id": "ep_006", "step": 2, "type": "tool_call", "tool": "currency_convert", "args": {"amount": 100, "from": "USD", "to": "EUR"}, "tokens": 30}
+{"episode_id": "ep_006", "step": 3, "type": "tool_result", "tool": "currency_convert", "result": "100 USD = 92.50 EUR", "error": null}
+{"episode_id": "ep_006", "step": 4, "type": "assistant_message", "content": "100 USD is equal to 92.50 EUR at the current exchange rate.", "tokens": 20}
+{"episode_id": "ep_006", "step": 5, "type": "episode_end", "success": true, "reward": 1.0, "total_tokens": 65, "total_cost": 0.0013}
+{"episode_id": "ep_007", "step": 0, "type": "user_message", "content": "Set a reminder for tomorrow at 9am", "timestamp": "2025-01-15T10:30:00Z"}
+{"episode_id": "ep_007", "step": 1, "type": "assistant_message", "content": "I'll set that reminder for you.", "tokens": 10}
+{"episode_id": "ep_007", "step": 2, "type": "tool_call", "tool": "create_reminder", "args": {"time": "2025-01-16T09:00:00", "message": "Reminder"}, "tokens": 35}
+{"episode_id": "ep_007", "step": 3, "type": "tool_result", "tool": "create_reminder", "result": null, "error": "Permission denied: no calendar access"}
+{"episode_id": "ep_007", "step": 4, "type": "assistant_message", "content": "I don't have permission to access your calendar. Please grant calendar access and try again.", "tokens": 25}
+{"episode_id": "ep_007", "step": 5, "type": "episode_end", "success": false, "reward": 0.0, "total_tokens": 70, "total_cost": 0.0014}
+{"episode_id": "ep_008", "step": 0, "type": "user_message", "content": "Summarize the latest tech news", "timestamp": "2025-01-15T10:35:00Z"}
+{"episode_id": "ep_008", "step": 1, "type": "assistant_message", "content": "Let me fetch the latest tech news for you.", "tokens": 15}
+{"episode_id": "ep_008", "step": 2, "type": "tool_call", "tool": "news_search", "args": {"category": "technology", "limit": 5}, "tokens": 30}
+{"episode_id": "ep_008", "step": 3, "type": "tool_result", "tool": "news_search", "result": "1. AI breakthrough in protein folding\n2. New iPhone release announced\n3. SpaceX successful launch\n4. EU AI regulation update\n5. Quantum computing milestone", "error": null}
+{"episode_id": "ep_008", "step": 4, "type": "assistant_message", "content": "Here's a summary of the latest tech news:\n\n1. **AI Breakthrough**: New advances in protein folding prediction\n2. **Apple**: New iPhone release announced\n3. **SpaceX**: Successful rocket launch completed\n4. **Regulation**: EU updates AI regulations\n5. **Quantum**: Major quantum computing milestone achieved\n\nWould you like more details on any of these stories?", "tokens": 85}
+{"episode_id": "ep_008", "step": 5, "type": "episode_end", "success": true, "reward": 1.0, "total_tokens": 130, "total_cost": 0.0026}
+{"episode_id": "ep_009", "step": 0, "type": "user_message", "content": "Calculate the tip for a $85 dinner", "timestamp": "2025-01-15T10:40:00Z"}
+{"episode_id": "ep_009", "step": 1, "type": "assistant_message", "content": "For an $85 dinner:\n- 15% tip: $12.75 (total: $97.75)\n- 18% tip: $15.30 (total: $100.30)\n- 20% tip: $17.00 (total: $102.00)", "tokens": 50}
+{"episode_id": "ep_009", "step": 2, "type": "episode_end", "success": true, "reward": 1.0, "total_tokens": 50, "total_cost": 0.0010}
+{"episode_id": "ep_010", "step": 0, "type": "user_message", "content": "Find me a parking spot near Times Square", "timestamp": "2025-01-15T10:45:00Z"}
+{"episode_id": "ep_010", "step": 1, "type": "assistant_message", "content": "I'll search for parking near Times Square.", "tokens": 12}
+{"episode_id": "ep_010", "step": 2, "type": "tool_call", "tool": "search_parking", "args": {"location": "Times Square, NYC"}, "tokens": 30}
+{"episode_id": "ep_010", "step": 3, "type": "tool_result", "tool": "search_parking", "result": null, "error": "Service unavailable"}
+{"episode_id": "ep_010", "step": 4, "type": "tool_call", "tool": "search_parking", "args": {"location": "Times Square, NYC"}, "tokens": 30}
+{"episode_id": "ep_010", "step": 5, "type": "tool_result", "tool": "search_parking", "result": null, "error": "Service unavailable"}
+{"episode_id": "ep_010", "step": 6, "type": "tool_call", "tool": "search_parking", "args": {"location": "Times Square, NYC"}, "tokens": 30}
+{"episode_id": "ep_010", "step": 7, "type": "tool_result", "tool": "search_parking", "result": null, "error": "Service unavailable"}
+{"episode_id": "ep_010", "step": 8, "type": "tool_call", "tool": "search_parking", "args": {"location": "Times Square, NYC"}, "tokens": 30}
+{"episode_id": "ep_010", "step": 9, "type": "tool_result", "tool": "search_parking", "result": null, "error": "Service unavailable"}
+{"episode_id": "ep_010", "step": 10, "type": "assistant_message", "content": "I'm sorry, the parking service is currently unavailable. Please try again later.", "tokens": 20}
+{"episode_id": "ep_010", "step": 11, "type": "episode_end", "success": false, "reward": 0.0, "total_tokens": 152, "total_cost": 0.0030}
