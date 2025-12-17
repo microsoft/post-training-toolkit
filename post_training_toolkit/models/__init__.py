@@ -8,14 +8,14 @@ Provides trainer-aware heuristics for detecting common failure modes:
 - KTO: Desirable/undesirable imbalance
 """
 
-from post_training_toolkit.diagnostics.engine import (
+from post_training_toolkit.models.engine import (
     run_diagnostics,
     load_jsonl,
     load_metrics,
     summarize_run,
     compute_derived_metrics,
 )
-from post_training_toolkit.diagnostics.heuristics import (
+from post_training_toolkit.models.heuristics import (
     run_heuristics,
     run_all_heuristics,
     Insight,

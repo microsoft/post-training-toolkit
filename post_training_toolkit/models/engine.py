@@ -20,17 +20,17 @@ from importlib import resources
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from post_training_toolkit.diagnostics.heuristics import (
+from post_training_toolkit.models.heuristics import (
     Insight, 
     run_heuristics, 
     run_all_heuristics,
     TrainerType,
 )
-from post_training_toolkit.diagnostics import plotting
+from post_training_toolkit.models import plotting
 
 
 # Template directory packaged with the module
-_TEMPLATES_DIR = resources.files("post_training_toolkit").joinpath("templates")
+_TEMPLATES_DIR = resources.files("post_training_toolkit.models").joinpath("templates")
 
 
 def load_metrics(path: Path) -> pd.DataFrame:
@@ -305,12 +305,6 @@ def analyze_behavior_drift(run_dir: Path) -> Optional[Dict[str, Any]]:
     Returns:
         Behavior drift analysis dict or None if no snapshots
     """
-    from post_training_toolkit.artifacts import RunArtifactManager
-    from post_training_toolkit.diffing import DiffManager
-    
-    artifact_manager = RunArtifactManager(run_dir)
-    steps = artifact_manager.list_snapshots()
-    
     if len(steps) < 2:
         return None
     
@@ -383,7 +377,7 @@ def get_checkpoint_recommendation(run_dir: Path) -> Optional[Dict[str, Any]]:
     Returns:
         Recommendation dict or None
     """
-    from post_training_toolkit.checkpoints import recommend_checkpoint
+    from post_training_toolkit.models.checkpoints import recommend_checkpoint
     
     rec = recommend_checkpoint(run_dir)
     if rec:

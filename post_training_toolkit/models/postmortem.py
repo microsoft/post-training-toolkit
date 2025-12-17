@@ -20,7 +20,7 @@ import traceback
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
-from post_training_toolkit.artifacts import (
+from post_training_toolkit.models.artifacts import (
     RunArtifactManager,
     Postmortem,
     get_environment_info,

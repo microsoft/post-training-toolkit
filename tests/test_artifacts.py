@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from post_training_toolkit.artifacts import (
+from post_training_toolkit.models.artifacts import (
     RunArtifactManager,
     RunMetadata,
     compute_config_hash,
