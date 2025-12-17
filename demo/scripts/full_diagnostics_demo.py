@@ -10,7 +10,7 @@ This demonstrates the complete post-training toolkit:
 - Checkpoint comparison and recommendation
 
 Usage:
-    python examples/full_diagnostics_demo.py
+    python demo/scripts/full_diagnostics_demo.py
 
 Requirements:
     pip install transformers trl datasets torch accelerate peft
@@ -20,8 +20,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Add parent to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import torch
 from datasets import Dataset
@@ -141,7 +141,7 @@ def main():
     print("\n[3/6] Setting up DPO training with FULL diagnostics...")
     
     # Use new run_dir based artifact management
-    run_dir = Path(__file__).parent.parent / "demo_outputs" / "full_dpo_run"
+    run_dir = Path(__file__).parent.parent / "outputs" / "full_dpo_run"
     run_dir.mkdir(parents=True, exist_ok=True)
     
     training_args = DPOConfig(

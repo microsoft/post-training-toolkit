@@ -18,7 +18,7 @@ This minimal notebook:
     cells.append(nbf.v4.new_code_cell("""from itertools import islice
 from pathlib import Path
 
-log_path = Path("../demo_logs/run_001.jsonl").resolve()
+log_path = Path("../logs/run_001.jsonl").resolve()
 print("Log path:", log_path)
 
 print("\\nFirst 5 lines of log:")
@@ -28,11 +28,11 @@ with open(log_path, "r", encoding="utf-8") as f:
 
     cells.append(nbf.v4.new_code_cell("""from pathlib import Path
 import sys
-sys.path.append(str(Path("..").resolve()))  # ensure parent on sys.path
+sys.path.append(str(Path("../..").resolve()))  # ensure project root on sys.path
 
-from diagnostics import run_diagnostics
+from post_training_toolkit import run_diagnostics
 
-reports_dir = Path("../reports").resolve()
+reports_dir = Path("../outputs/reports").resolve()
 out_path = run_diagnostics(log_path, reports_dir, make_plots=True)
 print("Report written to:", out_path)"""))
 

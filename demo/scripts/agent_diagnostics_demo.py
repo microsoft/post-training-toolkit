@@ -7,13 +7,13 @@ This example shows how to:
 4. Convert to KTO/SFT datasets
 
 Run with:
-    python examples/agent_diagnostics_demo.py
+    python demo/scripts/agent_diagnostics_demo.py
 """
 from pathlib import Path
 
-# Add parent to path for development
+# Add project root to path for development
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from post_training_toolkit.agents import (
     AgentRunLog,
@@ -25,7 +25,7 @@ from post_training_toolkit.agents import (
 
 def main():
     # Path to demo traces
-    traces_path = Path(__file__).parent.parent / "demo_logs" / "agent_traces.jsonl"
+    traces_path = Path(__file__).parent.parent / "logs" / "agent_traces.jsonl"
     
     print("=" * 60)
     print("AGENT DIAGNOSTICS DEMO")

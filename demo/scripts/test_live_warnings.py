@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """
-Minimal DPO training demo for CPU - demonstrates auto-detecting diagnostics.
+Test the live warnings and auto-diagnostics features.
 
-This runs a tiny DPO training loop (~2-3 min on CPU) to demonstrate
-the diagnostics callback integration with TRL. The callback automatically:
-- Detects the trainer type (DPO in this case)
-- Captures DPO-specific metrics
-- Runs DPO-specific heuristics (loss at 0.693, margin collapse, etc.)
+This runs a quick DPO training to demonstrate:
+1. Live warnings during training (enable_live_warnings=True)
+2. Auto-stopping on critical issues (stop_on_critical=True)
+3. Auto-diagnostics at end (auto_diagnostics=True)
 
 Usage:
-    python examples/minimal_dpo_demo.py
+    python demo/scripts/test_live_warnings.py
 
-Requirements:
-    pip install transformers trl datasets torch accelerate peft
+The callback will print live warnings like:
+    [DiagnosticsCallback] ⚠️ MEDIUM at step 20: DPO loss stuck near 0.693
+    [DiagnosticsCallback] 🚨 HIGH at step 50: ...
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-# Add parent to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import torch
 from datasets import Dataset
@@ -28,10 +28,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import DPOConfig, DPOTrainer
 from peft import LoraConfig
 
-from post_training_toolkit import DiagnosticsCallback, run_diagnostics
+from post_training_toolkit import DiagnosticsCallback
 
 
-def create_tiny_preference_dataset(n_samples: int = 50) -> Dataset:
+def create_tiny_preference_dataset(n_samples: int = 60) -> Dataset:
     """Create a minimal preference dataset for demo purposes."""
     prompts = [
         "Explain what machine learning is in one sentence.",
@@ -82,13 +82,18 @@ def create_tiny_preference_dataset(n_samples: int = 50) -> Dataset:
 
 
 def main():
-    print("=" * 60)
-    print("MINIMAL DPO DEMO - Auto-Detecting Diagnostics Callback")
-    print("=" * 60)
+    print("=" * 70)
+    print("TESTING LIVE WARNINGS + AUTO-DIAGNOSTICS")
+    print("=" * 70)
+    print("\nThis demo shows:")
+    print("  • Live warnings printed during training (⚠️ ℹ️ 🚨)")
+    print("  • Auto-stop on high-severity issues (if any)")
+    print("  • Auto-diagnostics report at end")
+    print("=" * 70)
     
     model_name = "sshleifer/tiny-gpt2"
     
-    print(f"\n[1/5] Loading tiny model: {model_name}")
+    print(f"\n[1/4] Loading tiny model: {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     
@@ -96,21 +101,18 @@ def main():
         model_name,
         torch_dtype=torch.float32,
     )
-    
     print(f"   Model parameters: {model.num_parameters():,}")
     
-    print("\n[2/5] Creating preference dataset...")
-    dataset = create_tiny_preference_dataset(n_samples=40)
-    print(f"   Dataset size: {len(dataset)} samples")
-    
+    print("\n[2/4] Creating preference dataset...")
+    dataset = create_tiny_preference_dataset(n_samples=60)
     dataset = dataset.train_test_split(test_size=0.2, seed=42)
     train_dataset = dataset["train"]
     eval_dataset = dataset["test"]
+    print(f"   Train: {len(train_dataset)}, Eval: {len(eval_dataset)}")
     
-    print("\n[3/5] Setting up DPO training with auto-detecting callback...")
+    print("\n[3/4] Setting up DPO training with NEW callback options...")
     
-    output_dir = Path(__file__).parent.parent / "demo_outputs" / "dpo_run"
-    log_path = output_dir / "diagnostics_log.jsonl"
+    output_dir = Path(__file__).parent.parent / "outputs" / "test_live_warnings"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     training_args = DPOConfig(
@@ -120,9 +122,9 @@ def main():
         per_device_eval_batch_size=2,
         gradient_accumulation_steps=2,
         learning_rate=5e-5,
-        logging_steps=1,
+        logging_steps=1,  # Log every step to see live warnings
         eval_strategy="steps",
-        eval_steps=5,
+        eval_steps=10,
         save_strategy="no",
         remove_unused_columns=False,
         max_length=128,
@@ -143,14 +145,30 @@ def main():
         task_type="CAUSAL_LM",
     )
     
-    # Zero-config callback - it auto-detects DPOTrainer!
+    # NEW: Callback with live warnings enabled (default)
     diagnostics_callback = DiagnosticsCallback(
-        log_path=log_path,
-        verbose=True,
+        run_dir=output_dir,
+        verbose=False,  # Keep False so we see live warnings more clearly
+        
+        # Live warnings (default ON)
+        enable_live_warnings=True,
+        live_warning_interval=5,  # Check every 5 steps
+        
+        # Auto-stop on critical issues (OFF for demo so we see full output)
+        stop_on_critical=False,
+        
+        # Auto-diagnostics summary at end (default ON)
+        auto_diagnostics=True,
+        
+        # Snapshots disabled to speed up demo
+        enable_snapshots=False,
     )
     
-    print(f"   Diagnostics logging to: {log_path}")
-    print("   ⚡ Callback will auto-detect trainer type (DPO)")
+    print(f"   Output dir: {output_dir}")
+    print("   Options:")
+    print("     • enable_live_warnings=True (check every 5 steps)")
+    print("     • stop_on_critical=False (for demo)")
+    print("     • auto_diagnostics=True (prints summary at end)")
     
     trainer = DPOTrainer(
         model=model,
@@ -162,39 +180,15 @@ def main():
         callbacks=[diagnostics_callback],
     )
     
-    print("\n[4/5] Training (this may take 2-3 minutes on CPU)...")
-    print("-" * 60)
+    print("\n[4/4] Training (watch for live warnings!)...")
+    print("=" * 70)
     
     trainer.train()
     
-    print("-" * 60)
+    # Diagnostics summary is printed automatically by the callback
     
-    # Show what trainer type was detected
-    print(f"\n   ✅ Detected trainer type: {diagnostics_callback.trainer_type.upper()}")
-    
-    print("\n[5/5] Running trainer-aware diagnostics...")
-    
-    reports_dir = output_dir / "reports"
-    report_path = run_diagnostics(log_path, reports_dir, make_plots=True)
-    
-    print(f"\n{'=' * 60}")
-    print("DEMO COMPLETE!")
-    print(f"{'=' * 60}")
-    print(f"\nOutputs:")
-    print(f"  - Training logs: {log_path}")
-    print(f"  - Diagnostic report: {report_path}")
-    print(f"  - Plots: {reports_dir / 'plots'}")
-    print(f"\nOpen the report to see DPO-specific diagnostics!")
-    
-    print(f"\n{'=' * 60}")
-    print("REPORT PREVIEW:")
-    print(f"{'=' * 60}")
-    with open(report_path, "r") as f:
-        for i, line in enumerate(f):
-            if i >= 40:
-                print("...")
-                break
-            print(line.rstrip())
+    print(f"\n✅ Detected trainer type: {diagnostics_callback.trainer_type.upper()}")
+    print(f"   Metrics saved to: {output_dir / 'metrics.jsonl'}")
 
 
 if __name__ == "__main__":
