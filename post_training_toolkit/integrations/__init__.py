@@ -1,4 +1,4 @@
-"""TRL trainer callbacks for diagnostics logging.
+"""TRL trainer integrations for diagnostics logging.
 
 Provides auto-configuring callbacks that work with any TRL trainer:
 - DPOTrainer
@@ -9,6 +9,6 @@ Provides auto-configuring callbacks that work with any TRL trainer:
 - CPOTrainer
 """
 
-from post_training_toolkit.callbacks.trl import DiagnosticsCallback, TrainerType
+from post_training_toolkit.integrations.trl import DiagnosticsCallback, TrainerType
 
 __all__ = ["DiagnosticsCallback", "TrainerType"]

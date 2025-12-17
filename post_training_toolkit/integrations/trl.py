@@ -54,32 +54,20 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from transformers import TrainerCallback, TrainerState, TrainerControl
 from transformers.training_args import TrainingArguments
 
-from post_training_toolkit.artifacts import (
+from post_training_toolkit.models.artifacts import (
     RunArtifactManager,
     is_main_process,
     compute_config_hash,
 )
-from post_training_toolkit.snapshots import (
+from post_training_toolkit.models.snapshots import (
     SnapshotManager,
     GenerationConfig,
     DEFAULT_EVAL_PROMPTS,
 )
-from post_training_toolkit.postmortem import PostmortemRecorder
+from post_training_toolkit.models.postmortem import PostmortemRecorder
 from post_training_toolkit.refusal import RefusalDetector
-from post_training_toolkit.diagnostics.engine import run_diagnostics
-from post_training_toolkit.diagnostics.heuristics import run_heuristics, Insight
-
-
-# Trainer type constants
-class TrainerType:
-    DPO = "dpo"
-    PPO = "ppo"
-    SFT = "sft"
-    ORPO = "orpo"
-    KTO = "kto"
-    CPO = "cpo"
-    GRPO = "grpo"
-    UNKNOWN = "unknown"
+from post_training_toolkit.models.engine import run_diagnostics
+from post_training_toolkit.models.heuristics import run_heuristics, Insight, TrainerType
 
 
 # Mapping from TRL trainer class names to our trainer types
@@ -598,7 +586,7 @@ class DiagnosticsCallback(TrainerCallback):
             
             # Initialize diff manager for auto-diff
             if self.enable_auto_diff:
-                from post_training_toolkit.diffing import DiffManager
+                from post_training_toolkit.models.diffing import DiffManager
                 self._diff_manager = DiffManager(self._artifact_manager)
         
         # Initialize postmortem recorder
@@ -609,7 +597,7 @@ class DiagnosticsCallback(TrainerCallback):
         # Initialize experiment tracker if configured
         if self._experiment_tracker_type and self._is_main:
             try:
-                from post_training_toolkit.trackers import get_tracker
+                from post_training_toolkit.integrations.trackers import get_tracker
                 
                 tracker_kwargs = dict(self._tracker_kwargs)
                 if self._experiment_tracker_type == "wandb":

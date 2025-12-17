@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from post_training_toolkit.artifacts import RunArtifactManager
-from post_training_toolkit.snapshots import SnapshotManager
+from post_training_toolkit.models.artifacts import RunArtifactManager
+from post_training_toolkit.models.snapshots import SnapshotManager
 
 
 class DummyTokenizer:

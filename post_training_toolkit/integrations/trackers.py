@@ -4,7 +4,7 @@ This module provides optional integrations with popular experiment tracking
 platforms. All trackers are lazy-loaded to avoid import overhead when not used.
 
 Usage:
-    from post_training_toolkit.trackers import get_tracker
+    from post_training_toolkit.integrations.trackers import get_tracker
     
     # WandB
     tracker = get_tracker("wandb", project="my-project", name="run-1")

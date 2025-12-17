@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from post_training_toolkit.artifacts import (
+from post_training_toolkit.models.artifacts import (
     RunArtifactManager,
     Snapshot,
     SnapshotMetadata,

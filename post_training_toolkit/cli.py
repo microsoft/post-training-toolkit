@@ -39,7 +39,7 @@ def diagnose_cli():
     
     args = parser.parse_args()
     
-    from post_training_toolkit.diagnostics import run_diagnostics
+    from post_training_toolkit.models import run_diagnostics
     
     try:
         report_path = run_diagnostics(
@@ -83,7 +83,7 @@ def compare_cli():
     
     args = parser.parse_args()
     
-    from post_training_toolkit.checkpoints import recommend_checkpoint
+    from post_training_toolkit.models.checkpoints import recommend_checkpoint
     import json
     
     try:
@@ -155,7 +155,7 @@ def validate_resume_cli():
     
     args = parser.parse_args()
     
-    from post_training_toolkit.checkpoints import validate_resume
+    from post_training_toolkit.models.checkpoints import validate_resume
     import json
     
     try:

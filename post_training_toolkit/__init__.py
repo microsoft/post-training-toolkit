@@ -44,11 +44,11 @@ Supported Trainers:
 - CPOTrainer: Preference consistency issues
 """
 
-from post_training_toolkit.callbacks import DiagnosticsCallback, TrainerType
-from post_training_toolkit.diagnostics import run_diagnostics, run_heuristics, Insight, load_metrics
+from post_training_toolkit.integrations import DiagnosticsCallback, TrainerType
+from post_training_toolkit.models import run_diagnostics, run_heuristics, Insight, load_metrics
 
 # Artifact management
-from post_training_toolkit.artifacts import (
+from post_training_toolkit.models.artifacts import (
     RunArtifactManager,
     RunMetadata,
     Snapshot,
@@ -66,12 +66,12 @@ from post_training_toolkit.artifacts import (
 )
 
 # Behavior snapshots and diffing
-from post_training_toolkit.snapshots import (
+from post_training_toolkit.models.snapshots import (
     SnapshotManager,
     GenerationConfig,
     DEFAULT_EVAL_PROMPTS,
 )
-from post_training_toolkit.diffing import DiffManager, diff_snapshots, DiffThresholds
+from post_training_toolkit.models.diffing import DiffManager, diff_snapshots, DiffThresholds
 
 # Refusal detection
 from post_training_toolkit.refusal import (
@@ -83,10 +83,10 @@ from post_training_toolkit.refusal import (
 )
 
 # Postmortem
-from post_training_toolkit.postmortem import PostmortemRecorder
+from post_training_toolkit.models.postmortem import PostmortemRecorder
 
 # Checkpoint comparison & resume validation
-from post_training_toolkit.checkpoints import (
+from post_training_toolkit.models.checkpoints import (
     CheckpointComparator,
     CheckpointRecommendation,
     recommend_checkpoint,

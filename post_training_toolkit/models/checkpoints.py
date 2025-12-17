@@ -17,8 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from post_training_toolkit.artifacts import RunArtifactManager, Snapshot
-from post_training_toolkit.diffing import DiffManager, DiffSummary, diff_snapshots
+from post_training_toolkit.models.artifacts import RunArtifactManager, Snapshot
+from post_training_toolkit.models.diffing import DiffManager, DiffSummary, diff_snapshots
 
 
 @dataclass

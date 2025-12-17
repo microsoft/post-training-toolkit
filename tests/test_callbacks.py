@@ -1,11 +1,11 @@
-"""Smoke tests for TRL callback."""
+"""Smoke tests for TRL integration."""
 import pytest
 import tempfile
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from post_training_toolkit.callbacks.trl import (
+from post_training_toolkit.integrations.trl import (
     DiagnosticsCallback,
     TrainerType,
     TRAINER_CLASS_MAP,

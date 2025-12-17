@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from post_training_toolkit.artifacts import (
+from post_training_toolkit.models.artifacts import (
     RunArtifactManager,
     Snapshot,
     SnapshotEntry,

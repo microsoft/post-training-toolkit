@@ -3,7 +3,7 @@ import pytest
 import pandas as pd
 import numpy as np
 
-from post_training_toolkit.diagnostics.heuristics import (
+from post_training_toolkit.models.heuristics import (
     TrainerType,
     Insight,
     detect_reward_variance_spikes,

@@ -4,7 +4,7 @@ import tempfile
 import json
 from pathlib import Path
 
-from post_training_toolkit.checkpoints import (
+from post_training_toolkit.models.checkpoints import (
     CheckpointComparator,
     CheckpointScore,
     CheckpointRecommendation,
@@ -15,7 +15,7 @@ from post_training_toolkit.checkpoints import (
     compute_metric_stability,
     compute_snapshot_consistency,
 )
-from post_training_toolkit.artifacts import (
+from post_training_toolkit.models.artifacts import (
     RunArtifactManager,
     Snapshot,
     SnapshotEntry,
