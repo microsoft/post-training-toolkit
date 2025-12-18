@@ -282,8 +282,9 @@ class TestCLI:
     def test_cli_help(self):
         """Verify CLI --help works."""
         import subprocess
+        import sys
         result = subprocess.run(
-            ["python", "-m", "post_training_toolkit.cli", "--help"],
+            [sys.executable, "-m", "post_training_toolkit.cli", "--help"],
             capture_output=True,
             text=True,
         )
