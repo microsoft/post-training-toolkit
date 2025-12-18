@@ -106,7 +106,11 @@ from post_training_toolkit.agents import (
     AgentInsight,
     to_preference_pairs,
     to_kto_dataset,
+    to_sft_dataset,
+    to_grpo_dataset,
     format_episode_as_conversation,
+    AgentTrainingLoop,
+    ComparisonResult,
 )
 
 __version__ = "0.3.0"
@@ -165,5 +169,9 @@ __all__ = [
     "AgentInsight",
     "to_preference_pairs",
     "to_kto_dataset",
+    "to_sft_dataset",
+    "to_grpo_dataset",
     "format_episode_as_conversation",
+    "AgentTrainingLoop",
+    "ComparisonResult",
 ]

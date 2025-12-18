@@ -35,7 +35,13 @@ from post_training_toolkit.agents.heuristics import (
 from post_training_toolkit.agents.converters import (
     to_preference_pairs,
     to_kto_dataset,
+    to_sft_dataset,
+    to_grpo_dataset,
     format_episode_as_conversation,
+)
+from post_training_toolkit.agents.loop import (
+    AgentTrainingLoop,
+    ComparisonResult,
 )
 
 __all__ = [
@@ -51,5 +57,10 @@ __all__ = [
     # Conversion
     "to_preference_pairs",
     "to_kto_dataset",
+    "to_sft_dataset",
+    "to_grpo_dataset",
     "format_episode_as_conversation",
+    # Training loop
+    "AgentTrainingLoop",
+    "ComparisonResult",
 ]
