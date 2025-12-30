@@ -68,6 +68,12 @@ from post_training_toolkit.models.postmortem import PostmortemRecorder
 from post_training_toolkit.refusal import RefusalDetector
 from post_training_toolkit.models.engine import run_diagnostics
 from post_training_toolkit.models.heuristics import run_heuristics, Insight, TrainerType
+from post_training_toolkit.models.profiling import (
+    StepTimer,
+    SlowdownDetector,
+    ThroughputTracker,
+    GPUProfiler,
+)
 
 
 # Mapping from TRL trainer class names to our trainer types
@@ -380,6 +386,17 @@ class DiagnosticsCallback(TrainerCallback):
         self._postmortem_recorder: Optional[PostmortemRecorder] = None
         self._experiment_tracker: Optional[Any] = None
         self._trainer_ref = None  # Weak reference to trainer for snapshots
+        
+        # Profiling components (always enabled, minimal overhead)
+        self._step_timer = StepTimer(window_size=50)
+        self._slowdown_detector = SlowdownDetector(
+            threshold=1.5,  # Warn if 50% slower
+            severe_threshold=2.0,  # Severe if 2x slower
+            min_steps_for_baseline=50,
+            check_interval=20,  # Check every 20 steps
+        )
+        self._throughput_tracker = ThroughputTracker(window_size=100)
+        self._gpu_profiler = GPUProfiler()
 
     @property
     def log_path(self) -> Path:
@@ -937,6 +954,21 @@ class DiagnosticsCallback(TrainerCallback):
                 raw[key] = float(val)
         return raw
 
+    def on_step_begin(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
+    ):
+        """Mark the start of a training step for profiling."""
+        if not self._initialized:
+            return
+        
+        # Start step timer for profiling
+        self._step_timer.start_step(state.global_step)
+        self._throughput_tracker.start_step()
+
     def on_log(
         self,
         args: TrainingArguments,
@@ -1027,11 +1059,44 @@ class DiagnosticsCallback(TrainerCallback):
         control: TrainerControl,
         **kwargs,
     ):
-        """Handle end of training step - capture snapshots and auto-diff if due."""
+        """Handle end of training step - profiling, snapshots, and auto-diff."""
         if not self._initialized:
             return
         
         step = state.global_step
+        
+        # Complete step timing and check for slowdowns
+        gpu_memory_mb = self._gpu_profiler.get_current_memory_mb()
+        self._step_timer.end_step(memory_mb=gpu_memory_mb)
+        
+        # Record GPU state
+        self._gpu_profiler.record_step(step)
+        
+        # Track throughput (try to get batch info from trainer)
+        batch_size = getattr(args, "per_device_train_batch_size", None)
+        seq_length = getattr(args, "max_seq_length", None) or getattr(args, "max_length", None)
+        self._throughput_tracker.end_step(
+            batch_size=batch_size,
+            seq_length=seq_length,
+        )
+        
+        # Check for slowdowns
+        slowdown_event = self._slowdown_detector.check(self._step_timer)
+        if slowdown_event and self._is_main:
+            print(f"\n[PTT] ⚠️ SLOWDOWN DETECTED at step {step}")
+            print(f"[PTT]    Step time: {slowdown_event.baseline_duration:.2f}s → {slowdown_event.current_duration:.2f}s ({slowdown_event.slowdown_factor:.1f}x)")
+            print(f"[PTT]    Cause: {slowdown_event.likely_cause}")
+            print(f"[PTT]    Suggestion: {slowdown_event.suggestion}")
+            if slowdown_event.memory_growth_mb:
+                print(f"[PTT]    Memory growth: {slowdown_event.memory_growth_mb:+,.0f} MB")
+            
+            # Log slowdown to metrics
+            if self._artifact_manager:
+                self._artifact_manager.log_metrics(step, {
+                    "slowdown_factor": slowdown_event.slowdown_factor,
+                    "step_time_sec": slowdown_event.current_duration,
+                    "baseline_step_time_sec": slowdown_event.baseline_duration,
+                })
         
         # Snapshot capture
         if self.enable_snapshots and self._snapshot_manager and self._snapshot_manager.should_snapshot(step):
@@ -1168,19 +1233,63 @@ class DiagnosticsCallback(TrainerCallback):
         import pandas as pd
         
         print(f"\n{'=' * 70}")
-        print("DIAGNOSTICS SUMMARY")
+        print("POST-TRAINING TOOLKIT - DIAGNOSTICS SUMMARY")
         print(f"{'=' * 70}")
         
         # Basic run info
         print(f"\nTrainer: {self._trainer_type.upper()} | Steps: {total_steps}")
         print(f"Artifacts: {self.run_dir}")
         
+        # Profiling summary
+        print(f"\n--- Performance Profile ---")
+        step_summary = self._step_timer.summary()
+        if step_summary.get("total_steps", 0) > 0:
+            print(f"  Total time: {step_summary['total_time_sec']:.1f}s")
+            print(f"  Mean step time: {step_summary['mean_step_sec']*1000:.0f}ms")
+            
+            # Check for slowdown
+            baseline = step_summary.get("baseline_duration")
+            recent = step_summary.get("recent_duration")
+            if baseline and recent and recent > baseline * 1.2:
+                slowdown_pct = ((recent / baseline) - 1) * 100
+                print(f"  ⚠️ Slowdown: {slowdown_pct:.0f}% slower than start")
+            else:
+                print(f"  ✓ No significant slowdown detected")
+                
+            # Memory growth
+            memory_growth = step_summary.get("memory_growth_mb")
+            if memory_growth and memory_growth > 100:
+                print(f"  ⚠️ Memory growth: {memory_growth:+,.0f} MB")
+        
+        # Throughput
+        throughput = self._throughput_tracker.report()
+        if throughput.mean_tokens_per_sec:
+            print(f"  Throughput: {throughput.mean_tokens_per_sec:,.0f} tokens/sec")
+        if throughput.bottleneck:
+            bottleneck_msg = {
+                "io": "⚠️ I/O bound (dataloader bottleneck)",
+                "memory": "⚠️ Memory bandwidth limited",
+                "compute": "✓ Compute bound (efficient)",
+            }.get(throughput.bottleneck, throughput.bottleneck)
+            print(f"  {bottleneck_msg}")
+        
+        # GPU summary
+        gpu_report = self._gpu_profiler.report()
+        if gpu_report.peak_memory_mb > 0:
+            print(f"\n--- GPU Profile ---")
+            print(f"  Peak memory: {gpu_report.peak_memory_mb:,.0f} MB")
+            print(f"  Memory pressure: {gpu_report.memory_pressure.upper()}")
+            if gpu_report.avg_gpu_util is not None:
+                print(f"  Avg GPU utilization: {gpu_report.avg_gpu_util:.0f}%")
+            if gpu_report.avg_fragmentation > 0.2:
+                print(f"  ⚠️ Memory fragmentation: {gpu_report.avg_fragmentation:.0%}")
+        
         # Get final metrics from history
         if self._metrics_history:
             df = pd.DataFrame(self._metrics_history)
             
             # Print key final metrics based on trainer type
-            print(f"\n--- Final Metrics ---")
+            print(f"\n--- Training Metrics ---")
             
             if self._trainer_type == "dpo":
                 if "dpo_loss" in df.columns:
@@ -1249,9 +1358,24 @@ class DiagnosticsCallback(TrainerCallback):
         print(f"\n{'=' * 70}\n")
     
     def _get_recommendations(self, insights: List[Insight]) -> List[str]:
-        """Generate actionable recommendations from insights."""
+        """Generate actionable recommendations from insights and profiling."""
         recommendations = []
         seen_types = set()
+        
+        # Profiling-based recommendations
+        slowdown = self._slowdown_detector.worst_slowdown()
+        if slowdown and slowdown.slowdown_factor > 1.5:
+            recommendations.append(f"Training slowed {slowdown.slowdown_factor:.1f}x: {slowdown.suggestion}")
+        
+        gpu_report = self._gpu_profiler.report()
+        if gpu_report.memory_pressure == "high":
+            recommendations.append("High GPU memory pressure: enable gradient_checkpointing or reduce batch size")
+        if gpu_report.avg_fragmentation > 0.3:
+            recommendations.append("High memory fragmentation: restart process between runs or use torch.cuda.empty_cache()")
+        
+        throughput = self._throughput_tracker.report()
+        if throughput.bottleneck == "io":
+            recommendations.append("I/O bottleneck: increase dataloader num_workers or use pin_memory=True")
         
         for insight in insights:
             if insight.type in seen_types:
@@ -1293,7 +1417,7 @@ class DiagnosticsCallback(TrainerCallback):
                 recommendations.append("NaN detected: reduce learning rate, check for numerical instability")
         
         if not recommendations:
-            recommendations.append("Review metrics history for training dynamics")
+            recommendations.append("Training looks healthy. Review metrics history for fine-tuning.")
         
         return recommendations[:5]  # Limit to top 5
 

@@ -17,8 +17,8 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from post_training_toolkit.artifacts import Snapshot
-from post_training_toolkit.diagnostics.heuristics import Insight, TrainerType
+from post_training_toolkit.models.artifacts import Snapshot
+from post_training_toolkit.models.heuristics import Insight, TrainerType
 
 
 def load_snapshots(run_dir: Path) -> List[Snapshot]:

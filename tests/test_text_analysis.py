@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
-from post_training_toolkit.artifacts import Snapshot, SnapshotMetadata, SnapshotEntry
-from post_training_toolkit.diagnostics.text_analysis import (
+from post_training_toolkit.models.artifacts import Snapshot, SnapshotMetadata, SnapshotEntry
+from post_training_toolkit.models.text_analysis import (
     detect_verbosity_bias,
     detect_repetition_loops,
     detect_pattern_collapse

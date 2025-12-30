@@ -39,6 +39,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union
+import re
 
 
 class StepType(str, Enum):
@@ -47,6 +48,8 @@ class StepType(str, Enum):
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+    # Model-side parse/validation issues (optional, for richer traces)
+    TOOL_PARSE_ERROR = "tool_parse_error"
     EPISODE_END = "episode_end"
     # Allow unknown types for flexibility
     OTHER = "other"
@@ -157,6 +160,37 @@ class Episode:
     total_tokens: Optional[int] = None
     total_cost: Optional[float] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def _iter_text_fields(self) -> Iterator[str]:
+        """Yield text-like fields from steps for lightweight text analysis."""
+        for s in self.steps:
+            if s.content:
+                yield s.content
+            if s.result:
+                yield s.result
+            if s.tool:
+                yield s.tool
+            if s.args:
+                for v in s.args.values():
+                    if isinstance(v, str) and v:
+                        yield v
+
+    @property
+    def parse_error_steps(self) -> List[Step]:
+        """Steps that indicate a model-side tool parsing error."""
+        out: List[Step] = []
+        for s in self.steps:
+            if s.type == StepType.TOOL_PARSE_ERROR:
+                out.append(s)
+                continue
+            # Back-compat: allow loggers to tag parse errors in metadata
+            if s.metadata.get("parse_error") is True:
+                out.append(s)
+        return out
+
+    @property
+    def has_parse_error(self) -> bool:
+        return len(self.parse_error_steps) > 0
     
     @property
     def total_steps(self) -> int:
@@ -211,6 +245,101 @@ class Episode:
     def get_tool_call_sequence(self) -> List[str]:
         """Get sequence of tool names called."""
         return [s.tool for s in self.tool_calls if s.tool]
+
+    def _tool_call_arg_fingerprints(
+        self,
+        tool: Optional[str] = None,
+        arg_key: Optional[str] = None,
+    ) -> List[str]:
+        """Return normalized fingerprints for tool call args.
+
+        If arg_key is provided, only that argument value is fingerprinted.
+        Otherwise the whole args dict is fingerprinted.
+        """
+        fps: List[str] = []
+        for s in self.tool_calls:
+            if tool is not None and s.tool != tool:
+                continue
+            if not s.args:
+                continue
+            if arg_key is not None:
+                val = s.args.get(arg_key)
+                if val is None:
+                    continue
+                fps.append(str(val).strip())
+            else:
+                try:
+                    fps.append(json.dumps(s.args, sort_keys=True, ensure_ascii=False))
+                except TypeError:
+                    fps.append(str(s.args))
+        return fps
+
+    def repeated_tool_call_args(
+        self,
+        tool: Optional[str] = None,
+        arg_key: Optional[str] = None,
+    ) -> List[str]:
+        """List repeated tool call arg fingerprints within an episode."""
+        fps = self._tool_call_arg_fingerprints(tool=tool, arg_key=arg_key)
+        seen: set[str] = set()
+        repeated: set[str] = set()
+        for fp in fps:
+            if fp in seen:
+                repeated.add(fp)
+            else:
+                seen.add(fp)
+        return sorted(repeated)
+
+    def repeated_query_fingerprints(
+        self,
+        tool: str = "search",
+        arg_keys: Optional[List[str]] = None,
+    ) -> List[str]:
+        """Detect repeated search-like queries within an episode.
+
+        This is a best-effort utility: many toolkits use either `q` or `query`.
+        """
+        if arg_keys is None:
+            arg_keys = ["q", "query"]
+        repeated: set[str] = set()
+        for key in arg_keys:
+            repeated.update(self.repeated_tool_call_args(tool=tool, arg_key=key))
+        return sorted(repeated)
+
+    @property
+    def max_consecutive_tool_calls(self) -> int:
+        """Maximum run of consecutive tool calls (proxy for tool-call bursts)."""
+        max_run = 0
+        current = 0
+        for s in self.steps:
+            if s.type == StepType.TOOL_CALL:
+                current += 1
+                max_run = max(max_run, current)
+            else:
+                current = 0
+        return max_run
+
+    def has_burst_tool_calls(self, max_consecutive_threshold: int = 5) -> bool:
+        """Whether the episode exhibits a tool-call burst."""
+        return self.max_consecutive_tool_calls > max_consecutive_threshold
+
+    @staticmethod
+    def _cjk_char_fraction(text: str) -> float:
+        """Approximate fraction of CJK characters in a string."""
+        if not text:
+            return 0.0
+        # Basic blocks: CJK Unified Ideographs + Extensions, Hiragana/Katakana, Hangul
+        cjk = re.findall(r"[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u30FF\uAC00-\uD7AF]", text)
+        return len(cjk) / max(1, len(text))
+
+    @property
+    def cjk_char_rate(self) -> float:
+        """Fraction of CJK characters across episode text fields."""
+        texts = list(self._iter_text_fields())
+        if not texts:
+            return 0.0
+        joined = "\n".join(texts)
+        return self._cjk_char_fraction(joined)
     
     def has_repeated_tool_pattern(self, min_repeats: int = 3) -> bool:
         """Check if there's a repeated tool call pattern (loop detection)."""
