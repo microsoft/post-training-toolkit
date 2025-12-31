@@ -29,6 +29,20 @@ trainer.train()
 
 Supports DPO, PPO, SFT, ORPO, KTO, CPO, and GRPO.
 
+## Distributed Training
+
+Works automatically with multi-GPU setups. Zero configuration needed.
+
+```bash
+# Single GPU
+python train.py
+
+# Multi-GPU (auto-detected)
+torchrun --nproc_per_node=8 train.py
+```
+
+Automatically detects stragglers, aggregates metrics across ranks, and tracks memory balance.
+
 ## Agent Trace Analysis
 
 Turn agent logs into diagnostics and preference datasets.

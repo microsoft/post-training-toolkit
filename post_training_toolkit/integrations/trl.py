@@ -74,6 +74,16 @@ from post_training_toolkit.models.profiling import (
     ThroughputTracker,
     GPUProfiler,
 )
+from post_training_toolkit.models.distributed import (
+    get_rank,
+    get_world_size,
+    is_distributed,
+    is_main_process as distributed_is_main_process,
+    gather_dict,
+    StragglerDetector,
+    DistributedMemoryTracker,
+    get_distributed_info,
+)
 
 
 # Mapping from TRL trainer class names to our trainer types
@@ -249,6 +259,11 @@ class DiagnosticsCallback(TrainerCallback):
         tracker_kwargs: Optional[Dict[str, Any]] = None,
         # Auto-diagnostics options (default ON - prints summary at end)
         auto_diagnostics: bool = True,
+        # Distributed training options (auto-detected)
+        distributed_metrics: bool = True,
+        straggler_detection: bool = True,
+        straggler_check_interval: int = 50,
+        distributed_memory: bool = True,
         # Legacy compatibility
         log_path: Optional[str | Path] = None,
     ):
@@ -305,6 +320,12 @@ class DiagnosticsCallback(TrainerCallback):
             
             # Auto-diagnostics (prints summary to console at end)
             auto_diagnostics: Print diagnostics summary at training end. Default: True
+            
+            # Distributed training options (auto-detected, zero config needed)
+            distributed_metrics: Aggregate metrics across ranks. Default: True (auto-enabled if distributed)
+            straggler_detection: Detect slow ranks in distributed training. Default: True
+            straggler_check_interval: Check for stragglers every N steps. Default: 50
+            distributed_memory: Track memory across ranks. Default: True
             
             log_path: DEPRECATED - use run_dir instead
 
@@ -397,6 +418,19 @@ class DiagnosticsCallback(TrainerCallback):
         )
         self._throughput_tracker = ThroughputTracker(window_size=100)
         self._gpu_profiler = GPUProfiler()
+        
+        # Distributed training components (auto-enabled if distributed detected)
+        self._distributed_metrics = distributed_metrics
+        self._straggler_detection = straggler_detection
+        self._straggler_check_interval = straggler_check_interval
+        self._distributed_memory = distributed_memory
+        
+        # Initialize distributed components (will be set up properly on train_begin)
+        self._straggler_detector: Optional[StragglerDetector] = None
+        self._distributed_memory_tracker: Optional[DistributedMemoryTracker] = None
+        self._is_distributed = False  # Set on train_begin
+        self._world_size = 1
+        self._rank = 0
 
     @property
     def log_path(self) -> Path:
@@ -648,6 +682,31 @@ class DiagnosticsCallback(TrainerCallback):
                 if self.verbose:
                     print(f"[DiagnosticsCallback] Tracker {self._experiment_tracker_type} not available: {e}")
                 self._experiment_tracker = None
+        
+        # Initialize distributed training components (auto-detect)
+        self._is_distributed = is_distributed()
+        self._world_size = get_world_size()
+        self._rank = get_rank()
+        
+        if self._is_distributed:
+            if self._straggler_detection:
+                self._straggler_detector = StragglerDetector(
+                    window_size=50,
+                    straggler_threshold=1.20,  # 20% slower = straggler
+                    consistent_checks=3,
+                )
+            if self._distributed_memory:
+                self._distributed_memory_tracker = DistributedMemoryTracker(history_size=100)
+            
+            if self.verbose and self._is_main:
+                dist_info = get_distributed_info()
+                print(f"[DiagnosticsCallback] Distributed training detected!")
+                print(f"[DiagnosticsCallback]   World size: {self._world_size}")
+                print(f"[DiagnosticsCallback]   Backend: {dist_info.backend}")
+                if self._straggler_detection:
+                    print(f"[DiagnosticsCallback]   Straggler detection: ON (check every {self._straggler_check_interval} steps)")
+                if self._distributed_memory:
+                    print(f"[DiagnosticsCallback]   Distributed memory tracking: ON")
         
         self._initialized = True
         
@@ -968,6 +1027,10 @@ class DiagnosticsCallback(TrainerCallback):
         # Start step timer for profiling
         self._step_timer.start_step(state.global_step)
         self._throughput_tracker.start_step()
+        
+        # Start straggler detection timing (distributed)
+        if self._straggler_detector:
+            self._straggler_detector.start_step()
 
     def on_log(
         self,
@@ -980,6 +1043,7 @@ class DiagnosticsCallback(TrainerCallback):
         """Capture and write metrics on each log event.
         
         Also checks for critical failures (NaN, Inf) and handles safe stopping.
+        In distributed mode, aggregates metrics across all ranks.
         """
         if logs is None or not self._initialized:
             return
@@ -1006,7 +1070,22 @@ class DiagnosticsCallback(TrainerCallback):
         if not metrics:
             return
         
-        # Check for critical failures (NaN, Inf, divergence)
+        # Aggregate metrics across ranks in distributed mode
+        if self._is_distributed and self._distributed_metrics:
+            # Gather metrics from all ranks (this is a collective operation)
+            aggregated = gather_dict(metrics)
+            
+            # Replace local metrics with aggregated version for logging
+            # Keep original local metrics for critical failure check (each rank checks its own)
+            metrics_to_log = aggregated
+            
+            # Add distributed metadata
+            metrics_to_log["world_size"] = self._world_size
+        else:
+            metrics_to_log = metrics
+        
+        # Check for critical failures (NaN, Inf, divergence) on LOCAL metrics
+        # Each rank should check its own metrics for NaN/Inf
         critical_failure = self._check_critical_failure(metrics)
         if critical_failure:
             self._handle_critical_failure(critical_failure, step, control)
@@ -1014,14 +1093,14 @@ class DiagnosticsCallback(TrainerCallback):
             # Update last good step (metrics were healthy)
             self._last_good_step = step
 
-        # Log to artifact manager
+        # Log to artifact manager (only rank 0 writes)
         if self._artifact_manager:
-            self._artifact_manager.log_metrics(step, metrics)
+            self._artifact_manager.log_metrics(step, metrics_to_log)
         
         # Log to experiment tracker
         if self._experiment_tracker and self._is_main:
             try:
-                self._experiment_tracker.log_metrics(metrics, step=step)
+                self._experiment_tracker.log_metrics(metrics_to_log, step=step)
             except Exception as e:
                 if self.verbose:
                     print(f"[DiagnosticsCallback] Tracker log failed: {e}")
@@ -1029,7 +1108,7 @@ class DiagnosticsCallback(TrainerCallback):
         # Record in postmortem buffer
         if self._postmortem_recorder:
             self._postmortem_recorder.record_step(step)
-            self._postmortem_recorder.record_metrics(step, metrics)
+            self._postmortem_recorder.record_metrics(step, metrics_to_log)
             
             # Check for NaN/divergence
             self._postmortem_recorder.check_for_nan(metrics)
@@ -1059,7 +1138,7 @@ class DiagnosticsCallback(TrainerCallback):
         control: TrainerControl,
         **kwargs,
     ):
-        """Handle end of training step - profiling, snapshots, and auto-diff."""
+        """Handle end of training step - profiling, snapshots, auto-diff, and distributed analysis."""
         if not self._initialized:
             return
         
@@ -1067,7 +1146,7 @@ class DiagnosticsCallback(TrainerCallback):
         
         # Complete step timing and check for slowdowns
         gpu_memory_mb = self._gpu_profiler.get_current_memory_mb()
-        self._step_timer.end_step(memory_mb=gpu_memory_mb)
+        step_timing = self._step_timer.end_step(memory_mb=gpu_memory_mb)
         
         # Record GPU state
         self._gpu_profiler.record_step(step)
@@ -1080,7 +1159,59 @@ class DiagnosticsCallback(TrainerCallback):
             seq_length=seq_length,
         )
         
-        # Check for slowdowns
+        # === DISTRIBUTED: Straggler detection ===
+        if self._straggler_detector and step_timing:
+            self._straggler_detector.end_step(step, step_timing.duration_sec)
+            
+            # Check for stragglers periodically
+            if step % self._straggler_check_interval == 0 and step > 0:
+                try:
+                    straggler_report = self._straggler_detector.analyze()
+                    if straggler_report and straggler_report.has_straggler:
+                        if self._is_main:
+                            print(f"\n[PTT] ⚠️ STRAGGLER DETECTED at step {step}")
+                            print(f"[PTT]    Slowest rank: {straggler_report.slowest_rank} ({straggler_report.slowdown_factor:.2f}x slower)")
+                            print(f"[PTT]    Consistent: {'Yes' if straggler_report.is_consistent else 'No'}")
+                            print(f"[PTT]    Likely cause: {straggler_report.likely_cause}")
+                            print(f"[PTT]    Suggestion: {straggler_report.suggestion}")
+                        
+                        # Log straggler info to metrics
+                        if self._artifact_manager:
+                            self._artifact_manager.log_metrics(step, {
+                                "straggler_rank": straggler_report.slowest_rank,
+                                "straggler_slowdown_factor": straggler_report.slowdown_factor,
+                                "distributed_efficiency": 1.0 / straggler_report.slowdown_factor,
+                            })
+                except Exception as e:
+                    if self.verbose and self._is_main:
+                        print(f"[DiagnosticsCallback] Straggler analysis failed: {e}")
+        
+        # === DISTRIBUTED: Memory tracking ===
+        if self._distributed_memory_tracker and step % 100 == 0:
+            try:
+                self._distributed_memory_tracker.record(step)
+                
+                if self._distributed_memory_tracker.has_memory_issue():
+                    report = self._distributed_memory_tracker.report()
+                    if self._is_main:
+                        print(f"\n[PTT] ⚠️ DISTRIBUTED MEMORY ISSUE at step {step}")
+                        print(f"[PTT]    Highest memory rank: {report.highest_growth_rank}")
+                        print(f"[PTT]    Memory imbalance: {report.current_snapshot.imbalance_ratio:.1%}")
+                        if report.predicted_oom_rank is not None:
+                            print(f"[PTT]    ⚠️ Predicted OOM: Rank {report.predicted_oom_rank}")
+                    
+                    # Log to metrics
+                    if self._artifact_manager:
+                        self._artifact_manager.log_metrics(step, {
+                            "memory_imbalance_ratio": report.current_snapshot.imbalance_ratio,
+                            "memory_max_rank": report.current_snapshot.max_rank,
+                            "memory_max_mb": report.current_snapshot.max_mb,
+                        })
+            except Exception as e:
+                if self.verbose and self._is_main:
+                    print(f"[DiagnosticsCallback] Distributed memory tracking failed: {e}")
+        
+        # Check for slowdowns (single-process)
         slowdown_event = self._slowdown_detector.check(self._step_timer)
         if slowdown_event and self._is_main:
             print(f"\n[PTT] ⚠️ SLOWDOWN DETECTED at step {step}")
@@ -1239,6 +1370,38 @@ class DiagnosticsCallback(TrainerCallback):
         # Basic run info
         print(f"\nTrainer: {self._trainer_type.upper()} | Steps: {total_steps}")
         print(f"Artifacts: {self.run_dir}")
+        
+        # Distributed training summary
+        if self._is_distributed:
+            print(f"\n--- Distributed Training ---")
+            print(f"  World size: {self._world_size} GPUs")
+            
+            # Straggler summary
+            if self._straggler_detector:
+                try:
+                    final_report = self._straggler_detector.analyze()
+                    if final_report:
+                        efficiency = self._straggler_detector.get_efficiency()
+                        print(f"  Training efficiency: {efficiency:.1%}")
+                        if final_report.has_straggler:
+                            print(f"  ⚠️ Straggler: Rank {final_report.slowest_rank} was {final_report.slowdown_factor:.2f}x slower")
+                            print(f"     Cause: {final_report.likely_cause}")
+                        else:
+                            print(f"  ✓ No significant stragglers detected")
+                except Exception:
+                    pass
+            
+            # Memory balance summary
+            if self._distributed_memory_tracker and self._distributed_memory_tracker.snapshots:
+                try:
+                    mem_report = self._distributed_memory_tracker.report()
+                    if mem_report.current_snapshot.is_imbalanced:
+                        print(f"  ⚠️ Memory imbalance: {mem_report.current_snapshot.imbalance_ratio:.1%}")
+                        print(f"     Highest: Rank {mem_report.current_snapshot.max_rank} ({mem_report.current_snapshot.max_mb:,.0f} MB)")
+                    else:
+                        print(f"  ✓ Memory balanced across ranks")
+                except Exception:
+                    pass
         
         # Profiling summary
         print(f"\n--- Performance Profile ---")
