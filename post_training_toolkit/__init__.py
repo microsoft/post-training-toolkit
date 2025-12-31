@@ -111,6 +111,8 @@ from post_training_toolkit.agents import (
     format_episode_as_conversation,
     AgentTrainingLoop,
     ComparisonResult,
+    TrajectoryLogger,
+    EpisodeHandle,
 )
 
 __version__ = "0.3.0"
@@ -174,4 +176,7 @@ __all__ = [
     "format_episode_as_conversation",
     "AgentTrainingLoop",
     "ComparisonResult",
+    # Agent Trajectory Logging
+    "TrajectoryLogger",
+    "EpisodeHandle",
 ]

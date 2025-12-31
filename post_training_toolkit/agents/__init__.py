@@ -43,6 +43,10 @@ from post_training_toolkit.agents.loop import (
     AgentTrainingLoop,
     ComparisonResult,
 )
+from post_training_toolkit.agents.trajectory import (
+    TrajectoryLogger,
+    EpisodeHandle,
+)
 
 __all__ = [
     # Trace loading
@@ -63,4 +67,7 @@ __all__ = [
     # Training loop
     "AgentTrainingLoop",
     "ComparisonResult",
+    # Trajectory logging
+    "TrajectoryLogger",
+    "EpisodeHandle",
 ]
