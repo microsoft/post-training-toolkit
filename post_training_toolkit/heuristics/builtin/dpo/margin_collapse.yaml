@@ -1,0 +1,11 @@
+name: yaml_margin_collapse
+description: Detect collapse in chosen/rejected reward margin
+trainers: [dpo, orpo, cpo]
+metric: reward_margin
+condition: "< 0.1"
+window: 20
+severity: high
+message: "Reward margin collapsed to {value:.3f}"
+reference: "https://arxiv.org/abs/2305.18290"
+min_steps: 30
+enabled: true

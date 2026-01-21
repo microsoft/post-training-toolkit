@@ -1,0 +1,11 @@
+name: yaml_kl_divergence_high
+description: Detect KL divergence exceeding safe thresholds
+trainers: [dpo, ppo, kto, grpo]
+metric: kl
+condition: "> 0.3"
+window: 20
+severity: high
+message: "KL divergence exceeded safe threshold ({value:.3f}). Policy may be drifting too far from reference."
+reference: "Schulman et al. (2017) 'PPO', Section 4"
+min_steps: 30
+enabled: true

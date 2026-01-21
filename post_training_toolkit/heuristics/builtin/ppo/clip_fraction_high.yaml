@@ -1,0 +1,11 @@
+name: yaml_clip_fraction_high
+description: Detect when PPO clip fraction is too high (policy changing too fast)
+trainers: [ppo, grpo]
+metric: clip_fraction
+condition: "> 0.3"
+window: 20
+severity: medium
+message: "PPO clip fraction high ({value:.2f}). Policy may be changing too aggressively."
+reference: "Schulman et al. (2017) 'PPO' - Clip fraction should typically be < 0.2"
+min_steps: 30
+enabled: true

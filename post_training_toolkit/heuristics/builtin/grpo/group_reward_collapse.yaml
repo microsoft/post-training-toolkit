@@ -1,0 +1,11 @@
+name: yaml_grpo_group_reward_collapse
+description: Detect collapse in group reward variance in GRPO
+trainers: [grpo]
+metric: group_reward_std
+condition: "< 0.01"
+window: 20
+severity: high
+message: "GRPO group reward variance collapsed to {value:.4f}. Learning signal may be lost."
+reference: "DeepSeek-R1 - GRPO requires reward variance for group-relative advantages"
+min_steps: 40
+enabled: true

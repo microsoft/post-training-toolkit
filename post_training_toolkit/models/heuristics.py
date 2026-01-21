@@ -1468,22 +1468,38 @@ GRPO_HEURISTICS = [
 ]
 
 
-def run_heuristics(df: pd.DataFrame, trainer_type: str = TrainerType.UNKNOWN) -> List[Insight]:
+def run_heuristics(
+    df: pd.DataFrame,
+    trainer_type: str = TrainerType.UNKNOWN,
+    custom_alerts: Optional[List[str]] = None,
+    custom_yaml_dirs: Optional[List[str]] = None,
+    disable_yaml_heuristics: bool = False,
+) -> List[Insight]:
     """Run heuristics appropriate for the detected trainer type.
-    
+
+    This runs both Python-based heuristics and YAML-based heuristics (if pyyaml
+    is installed). YAML heuristics can be customized via:
+    - custom_alerts: Inline alert strings (e.g., "dpo: margin < 0.1 -> high: Alert")
+    - custom_yaml_dirs: Directories containing custom YAML heuristic files
+
     Args:
         df: DataFrame with training metrics
-        trainer_type: One of 'dpo', 'ppo', 'sft', 'orpo', 'kto', 'cpo', 'unknown'
-        
+        trainer_type: One of 'dpo', 'ppo', 'sft', 'orpo', 'kto', 'cpo', 'grpo', 'unknown'
+        custom_alerts: Optional list of inline alert strings
+        custom_yaml_dirs: Optional list of directories with custom YAML heuristics
+        disable_yaml_heuristics: If True, skip YAML-based heuristics entirely
+
     Returns:
         List of Insight objects, sorted by severity (high → medium → low)
     """
+    from pathlib import Path
+
     insights: List[Insight] = []
-    
+
     # Always run common heuristics
     for heuristic in COMMON_HEURISTICS:
         insights.extend(heuristic(df))
-    
+
     # Run trainer-specific heuristics
     if trainer_type == TrainerType.DPO:
         for heuristic in DPO_HEURISTICS:
@@ -1510,12 +1526,45 @@ def run_heuristics(df: pd.DataFrame, trainer_type: str = TrainerType.UNKNOWN) ->
         # Unknown trainer - run all heuristics for best coverage
         for heuristic in DPO_HEURISTICS + PPO_HEURISTICS + SFT_HEURISTICS + GRPO_HEURISTICS:
             insights.extend(heuristic(df))
-    
+
+    # Run YAML-based heuristics if not disabled and pyyaml is available
+    if not disable_yaml_heuristics:
+        try:
+            from post_training_toolkit.heuristics.executor import run_yaml_heuristics
+
+            # Convert custom_yaml_dirs to Path objects if provided
+            yaml_dirs = None
+            if custom_yaml_dirs:
+                yaml_dirs = [Path(d) for d in custom_yaml_dirs]
+
+            yaml_insights = run_yaml_heuristics(
+                df=df,
+                trainer_type=trainer_type,
+                custom_dirs=yaml_dirs,
+                custom_alerts=custom_alerts,
+                disable_builtin=False,
+            )
+            insights.extend(yaml_insights)
+        except ImportError:
+            # pyyaml not installed - skip YAML heuristics silently
+            pass
+        except Exception:
+            # Other errors - skip YAML heuristics silently to not break existing code
+            pass
+
+    # Deduplicate insights by type (prefer Python-based over YAML-based)
+    seen_types: Set[str] = set()
+    deduped_insights: List[Insight] = []
+    for insight in insights:
+        if insight.type not in seen_types:
+            deduped_insights.append(insight)
+            seen_types.add(insight.type)
+
     # Sort by severity
     severity_rank = {"high": 0, "medium": 1, "low": 2}
-    insights.sort(key=lambda x: severity_rank.get(x.severity, 3))
-    
-    return insights
+    deduped_insights.sort(key=lambda x: severity_rank.get(x.severity, 3))
+
+    return deduped_insights
 
 
 def run_all_heuristics(df: pd.DataFrame) -> List[Insight]:

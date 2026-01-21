@@ -1,0 +1,11 @@
+name: yaml_value_head_divergence
+description: Detect value head divergence in PPO training
+trainers: [ppo]
+metric: value_loss
+condition: "> 0.5"
+window: 20
+severity: medium
+message: "Value head diverging (loss={value:.3f}). Critic cannot accurately estimate returns."
+reference: "Schulman et al. (2017) 'PPO', Section 4 - High value loss indicates critic underfitting"
+min_steps: 30
+enabled: true

@@ -264,6 +264,10 @@ class DiagnosticsCallback(TrainerCallback):
         straggler_detection: bool = True,
         straggler_check_interval: int = 50,
         distributed_memory: bool = True,
+        # YAML heuristics options
+        custom_alerts: Optional[List[str]] = None,
+        custom_heuristics_dir: Optional[str | Path] = None,
+        disable_yaml_heuristics: bool = False,
         # Legacy compatibility
         log_path: Optional[str | Path] = None,
     ):
@@ -326,7 +330,13 @@ class DiagnosticsCallback(TrainerCallback):
             straggler_detection: Detect slow ranks in distributed training. Default: True
             straggler_check_interval: Check for stragglers every N steps. Default: 50
             distributed_memory: Track memory across ranks. Default: True
-            
+
+            # YAML heuristics options (requires pyyaml: pip install pyyaml)
+            custom_alerts: Inline alert strings for quick custom heuristics.
+                Example: ["dpo: margin < 0.1 -> high: Margin collapsed"]
+            custom_heuristics_dir: Directory containing custom YAML heuristic files
+            disable_yaml_heuristics: Disable all YAML-based heuristics. Default: False
+
             log_path: DEPRECATED - use run_dir instead
 
         Note:
@@ -424,7 +434,12 @@ class DiagnosticsCallback(TrainerCallback):
         self._straggler_detection = straggler_detection
         self._straggler_check_interval = straggler_check_interval
         self._distributed_memory = distributed_memory
-        
+
+        # YAML heuristics options
+        self._custom_alerts = custom_alerts
+        self._custom_heuristics_dir = Path(custom_heuristics_dir) if custom_heuristics_dir else None
+        self._disable_yaml_heuristics = disable_yaml_heuristics
+
         # Initialize distributed components (will be set up properly on train_begin)
         self._straggler_detector: Optional[StragglerDetector] = None
         self._distributed_memory_tracker: Optional[DistributedMemoryTracker] = None
@@ -902,29 +917,41 @@ class DiagnosticsCallback(TrainerCallback):
 
     def _run_live_heuristics(self, step: int, metrics: Dict[str, Any]) -> List[Insight]:
         """Run lightweight heuristics on recent metrics and return any insights.
-        
+
         This runs trainer-appropriate heuristics on accumulated metrics history,
-        optimized for low overhead during training.
+        optimized for low overhead during training. Includes both Python-based
+        and YAML-based heuristics (if pyyaml is installed).
         """
         import pandas as pd
-        
+
         # Add current metrics to history
         self._metrics_history.append({"step": step, **metrics})
-        
+
         # Trim history to max size (ring buffer)
         if len(self._metrics_history) > self._max_history_size:
             self._metrics_history = self._metrics_history[-self._max_history_size:]
-        
+
         # Need at least 10 steps for meaningful analysis
         if len(self._metrics_history) < 10:
             return []
-        
+
         # Convert to DataFrame for heuristics
         df = pd.DataFrame(self._metrics_history)
-        
-        # Run heuristics for current trainer type
-        insights = run_heuristics(df, self._trainer_type)
-        
+
+        # Build custom_yaml_dirs list
+        custom_yaml_dirs = None
+        if self._custom_heuristics_dir:
+            custom_yaml_dirs = [str(self._custom_heuristics_dir)]
+
+        # Run heuristics for current trainer type (includes YAML heuristics)
+        insights = run_heuristics(
+            df,
+            self._trainer_type,
+            custom_alerts=self._custom_alerts,
+            custom_yaml_dirs=custom_yaml_dirs,
+            disable_yaml_heuristics=self._disable_yaml_heuristics,
+        )
+
         return insights
 
     def _handle_live_insights(

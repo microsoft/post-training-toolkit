@@ -1,0 +1,11 @@
+name: yaml_reward_variance_spike
+description: Detect sudden spikes in reward variance that may indicate instability
+trainers: [dpo, ppo, orpo, kto, grpo]
+metric: reward_std
+condition: "spike(2.5x)"
+window: 20
+severity: high
+message: "Reward variance spiked to {value:.3f} (2.5x above baseline)"
+reference: "Zheng et al. (2023) 'Secrets of RLHF', Section 4.1"
+min_steps: 50
+enabled: true

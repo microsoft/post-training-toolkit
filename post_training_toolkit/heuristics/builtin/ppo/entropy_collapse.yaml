@@ -1,0 +1,11 @@
+name: yaml_entropy_collapse
+description: Detect entropy collapse in PPO (policy becoming too deterministic)
+trainers: [ppo, grpo]
+metric: entropy
+condition: "drop(50%)"
+window: 30
+severity: high
+message: "Policy entropy dropped to {value:.3f} (50%+ from baseline). Model may be too deterministic."
+reference: "Mnih et al. (2016) 'A3C' - Entropy regularization prevents premature convergence"
+min_steps: 50
+enabled: true

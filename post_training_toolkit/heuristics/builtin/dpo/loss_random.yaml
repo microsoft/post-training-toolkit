@@ -1,0 +1,11 @@
+name: yaml_dpo_loss_random
+description: Detect DPO loss stuck at ~0.693 (random chance = ln(2))
+trainers: [dpo]
+metric: dpo_loss
+condition: "range(0.68, 0.71)"
+window: 20
+severity: high
+message: "DPO loss stuck at {value:.4f} (random chance ~0.693). Model may not be learning preferences."
+reference: "Rafailov et al. (2023) 'DPO', Section 4.2 - Loss at ln(2) indicates no preference signal"
+min_steps: 30
+enabled: true
