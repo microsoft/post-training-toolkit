@@ -1,0 +1,11 @@
+name: repetition_rate_high
+description: Detect when model outputs become repetitive
+trainers: [dpo, ppo, grpo, sft, orpo, kto]
+metric: repetition_rate
+condition: "> 0.2"
+window: 20
+severity: medium
+message: "Repetition rate at {value:.1%} - outputs becoming repetitive. May indicate mode collapse."
+reference: "Repetition is a common sign of mode collapse in language models"
+min_steps: 30
+enabled: true

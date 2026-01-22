@@ -1,0 +1,11 @@
+name: empty_response_rate_high
+description: Detect when model generates empty or very short responses
+trainers: [dpo, ppo, grpo, orpo, kto]
+metric: empty_response_rate
+condition: "> 0.1"
+window: 20
+severity: high
+message: "Empty/short response rate at {value:.1%} - model may be collapsing to minimal outputs."
+reference: "Empty responses often indicate mode collapse or over-optimization of length penalty"
+min_steps: 30
+enabled: true

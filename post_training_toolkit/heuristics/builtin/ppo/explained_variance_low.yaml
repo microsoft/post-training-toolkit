@@ -1,0 +1,11 @@
+name: ppo_explained_variance_low
+description: Detect when value function explains little of the return variance
+trainers: [ppo, grpo]
+metric: explained_variance
+condition: "< 0.1"
+window: 30
+severity: high
+message: "Explained variance at {value:.3f} - value function is nearly useless. Consider more value function updates or larger critic."
+reference: "Engstrom et al. (2020) 'Implementation Matters' - explained_variance < 0 means critic is worse than predicting mean"
+min_steps: 50
+enabled: true

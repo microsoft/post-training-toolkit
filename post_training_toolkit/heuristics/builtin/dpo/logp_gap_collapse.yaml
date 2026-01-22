@@ -1,0 +1,11 @@
+name: dpo_logp_gap_collapse
+description: Detect when chosen/rejected log probability gap becomes too small
+trainers: [dpo, orpo, cpo]
+metric: logps_gap
+condition: "< 0.5"
+window: 20
+severity: high
+message: "Chosen/rejected logp gap collapsed to {value:.3f} - model can't distinguish preferences. Check data quality or reduce learning rate."
+reference: "When logp gap approaches 0, the preference signal is lost"
+min_steps: 30
+enabled: true

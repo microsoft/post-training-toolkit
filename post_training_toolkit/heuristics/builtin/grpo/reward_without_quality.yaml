@@ -1,0 +1,11 @@
+name: grpo_reward_without_quality
+description: Detect when reward increases but policy quality metrics degrade
+trainers: [grpo, ppo]
+metric: reward_quality_divergence
+condition: "> 0.5"
+window: 30
+severity: high
+message: "Reward increasing but quality degrading (divergence: {value:.2f}) - likely reward hacking."
+reference: "Gao et al. (2022) 'Scaling Laws for Reward Model Overoptimization'"
+min_steps: 50
+enabled: true

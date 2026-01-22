@@ -1,0 +1,11 @@
+name: response_truncation_rate_high
+description: Detect when model frequently hits max_tokens limit
+trainers: [dpo, ppo, grpo, sft, orpo, kto]
+metric: truncation_rate
+condition: "> 0.3"
+window: 20
+severity: medium
+message: "Truncation rate at {value:.1%} - model hitting max_tokens too often. Consider increasing max_new_tokens or investigating why outputs are long."
+reference: "High truncation can indicate reward hacking via length or genuine need for longer outputs"
+min_steps: 30
+enabled: true
