@@ -1,0 +1,11 @@
+# Custom heuristic: Detect when reward margin is too low
+name: custom_margin_too_low
+description: Detect when model can't distinguish chosen vs rejected
+trainers: [dpo]
+metric: reward_margin
+condition: "< 0.02"
+window: 5
+severity: high
+message: "Reward margin too low ({value:.4f}). Model can't distinguish chosen vs rejected!"
+min_steps: 5
+enabled: true
