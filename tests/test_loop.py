@@ -1,4 +1,3 @@
-"""Tests for AgentTrainingLoop."""
 import pytest
 from pathlib import Path
 
@@ -11,9 +10,7 @@ from post_training_toolkit.agents import (
     ComparisonResult,
 )
 
-
 def make_episode(episode_id: str, success: bool, steps: int = 5) -> Episode:
-    """Helper to create test episodes."""
     step_list = [
         Step(episode_id=episode_id, step=0, type=StepType.USER_MESSAGE, content="Do task"),
     ]
@@ -28,10 +25,8 @@ def make_episode(episode_id: str, success: bool, steps: int = 5) -> Episode:
         total_tokens=steps * 100,
     )
 
-
 @pytest.fixture
 def sample_runs() -> AgentRunLog:
-    """Create sample AgentRunLog for testing."""
     episodes = [
         make_episode("ep_001", success=True, steps=5),
         make_episode("ep_002", success=True, steps=8),
@@ -41,17 +36,13 @@ def sample_runs() -> AgentRunLog:
     ]
     return AgentRunLog.from_episodes(episodes)
 
-
 @pytest.fixture
 def sample_jsonl(sample_runs, tmp_path) -> Path:
-    """Write sample runs to JSONL file."""
     path = tmp_path / "traces.jsonl"
     sample_runs.to_jsonl(path)
     return path
 
-
 class TestAgentTrainingLoopCreation:
-    """Test loop creation methods."""
     
     def test_from_runs(self, sample_runs):
         loop = AgentTrainingLoop.from_runs(sample_runs)
@@ -71,17 +62,15 @@ class TestAgentTrainingLoopCreation:
         assert loop.runs is sample_runs
         assert len(loop.episodes) == 5
 
-
 class TestAgentTrainingLoopDiagnose:
-    """Test diagnostics."""
     
     def test_diagnose_returns_report(self, sample_runs):
         loop = AgentTrainingLoop.from_runs(sample_runs)
         report = loop.diagnose()
         
         assert report.total_episodes == 5
-        assert report.success_rate == 0.6  # 3/5
-        assert loop.report is report  # Cached
+        assert report.success_rate == 0.6
+        assert loop.report is report
     
     def test_diagnose_with_budget(self, sample_runs):
         loop = AgentTrainingLoop.from_runs(sample_runs)
@@ -92,9 +81,7 @@ class TestAgentTrainingLoopDiagnose:
         loop = AgentTrainingLoop.from_runs(sample_runs)
         assert loop.report is None
 
-
 class TestAgentTrainingLoopDatasets:
-    """Test dataset building."""
     
     def test_build_preferences(self, sample_runs):
         loop = AgentTrainingLoop.from_runs(sample_runs)
@@ -106,7 +93,6 @@ class TestAgentTrainingLoopDatasets:
         assert "prompt" in dataset.column_names
         assert "chosen" in dataset.column_names
         assert "rejected" in dataset.column_names
-        # 3 positive × 2 negative = 6 pairs
         assert len(dataset) == 6
     
     def test_build_preferences_custom_keys(self, sample_runs):
@@ -141,13 +127,12 @@ class TestAgentTrainingLoopDatasets:
         )
         
         assert "text" in dataset.column_names
-        assert len(dataset) == 3  # Only successful
+        assert len(dataset) == 3
     
     def test_build_sft_dataset_default_filter(self, sample_runs):
         loop = AgentTrainingLoop.from_runs(sample_runs)
         dataset = loop.build_sft_dataset()
         
-        # Default filter is success=True
         assert len(dataset) == 3
     
     def test_build_grpo_dataset(self, sample_runs):
@@ -165,14 +150,11 @@ class TestAgentTrainingLoopDatasets:
             reward_fn=lambda e: 1.0 if e.success else -1.0,
         )
         
-        # Check rewards are correct
         rewards = dataset["reward"]
-        assert sum(1 for r in rewards if r == 1.0) == 3  # 3 successful
-        assert sum(1 for r in rewards if r == -1.0) == 2  # 2 failed
-
+        assert sum(1 for r in rewards if r == 1.0) == 3
+        assert sum(1 for r in rewards if r == -1.0) == 2
 
 class TestAgentTrainingLoopFiltering:
-    """Test filtering methods."""
     
     def test_filter(self, sample_runs):
         loop = AgentTrainingLoop.from_runs(sample_runs)
@@ -199,11 +181,9 @@ class TestAgentTrainingLoopFiltering:
         loop = AgentTrainingLoop.from_runs(sample_runs)
         short_success = loop.successful().filter(lambda e: e.total_steps < 6)
         
-        assert len(short_success) == 2  # ep_001 (5 steps) and ep_005 (3 steps)
-
+        assert len(short_success) == 2
 
 class TestAgentTrainingLoopComparison:
-    """Test before/after comparison."""
     
     def test_compare_basic(self):
         before_episodes = [
@@ -287,13 +267,11 @@ class TestAgentTrainingLoopComparison:
         
         assert "Regressions" in output
 
-
 class TestAgentTrainingLoopStats:
-    """Test convenience stats."""
     
     def test_success_rate(self, sample_runs):
         loop = AgentTrainingLoop.from_runs(sample_runs)
-        assert loop.success_rate == 0.6  # 3/5
+        assert loop.success_rate == 0.6
     
     def test_avg_steps(self, sample_runs):
         loop = AgentTrainingLoop.from_runs(sample_runs)
@@ -302,7 +280,6 @@ class TestAgentTrainingLoopStats:
     
     def test_tool_error_rate_no_errors(self, sample_runs):
         loop = AgentTrainingLoop.from_runs(sample_runs)
-        # No tool errors in sample data
         assert loop.tool_error_rate == 0.0
     
     def test_summary(self, sample_runs):
@@ -320,9 +297,7 @@ class TestAgentTrainingLoopStats:
         assert "episodes=5" in r
         assert "60.0%" in r
 
-
 class TestComparisonResult:
-    """Test ComparisonResult dataclass."""
     
     def test_improved_when_success_rate_up(self):
         result = ComparisonResult(

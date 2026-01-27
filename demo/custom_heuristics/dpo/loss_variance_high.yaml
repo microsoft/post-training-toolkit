@@ -1,5 +1,3 @@
-# Custom heuristic: Detect when reward margin is too low (model not distinguishing)
-# This fires when the model can't tell chosen from rejected responses
 name: custom_margin_too_low
 description: Detect when reward margin is too low - model not learning preference signal
 trainers: [dpo]

@@ -1,15 +1,3 @@
-"""Trajectory logging utilities.
-
-This module provides a small, framework-agnostic fallback for collecting
-agent trajectories in the canonical PTT Trace v1 JSONL format.
-
-Design goals:
-- Minimal surface area: easy to drop into any custom agent loop
-- Hard to misuse: auto episode_id, auto step increment, always writes episode_end
-- Compatible with AgentRunLog.from_jsonl() and analyze_runs()
-
-The JSONL schema written here matches post_training_toolkit.agents.traces.
-"""
 
 from __future__ import annotations
 
@@ -21,14 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Union
 
-
 def _utc_now_iso() -> str:
 	return datetime.now(timezone.utc).isoformat()
 
-
 def _json_safe(value: Any) -> Any:
-	"""Best-effort conversion for JSON encoding."""
-
 	if value is None:
 		return None
 	if isinstance(value, (str, int, float, bool)):
@@ -39,10 +23,7 @@ def _json_safe(value: Any) -> Any:
 		return {str(k): _json_safe(v) for k, v in value.items()}
 	return str(value)
 
-
 def _stringify_result(value: Any) -> str:
-	"""Convert a tool result to a string, preserving structure when possible."""
-
 	if value is None:
 		return ""
 	if isinstance(value, str):
@@ -52,15 +33,7 @@ def _stringify_result(value: Any) -> str:
 	except Exception:
 		return str(value)
 
-
 class TrajectoryLogger:
-	"""Append-only JSONL logger for agent trajectories.
-
-	If auto_diagnostics is enabled, analyze_runs() is executed once when the
-	logger is closed (context exit or explicit close) so users don't need to
-	manually run a separate diagnostics command.
-	"""
-
 	def __init__(
 		self,
 		path: Union[str, Path],
@@ -69,7 +42,7 @@ class TrajectoryLogger:
 		flush_every: int = 1,
 		auto_diagnostics: bool = True,
 		diagnostics_budget_per_episode: Optional[float] = None,
-		diagnostics_output: str = "stdout",  # stdout|stderr|none
+		diagnostics_output: str = "stdout",
 	) -> None:
 		self.path = Path(path)
 		self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,11 +126,8 @@ class TrajectoryLogger:
 		stream = sys.stdout if self.diagnostics_output == "stdout" else sys.stderr
 		print(text, file=stream)
 
-
 @dataclass
 class EpisodeHandle:
-	"""Episode-scoped handle to prevent mixing steps across episodes."""
-
 	logger: TrajectoryLogger
 	episode_id: str
 	task: Optional[str] = None
@@ -174,8 +144,6 @@ class EpisodeHandle:
 			self.episode_metadata = {}
 
 		if self.task:
-			# If the caller passes task, treat it as the initial user message.
-			# Users can still call ep.user(...) explicitly; this is a convenience.
 			self.user(self.task, metadata={"task": True})
 
 	def __enter__(self) -> "EpisodeHandle":
@@ -270,7 +238,6 @@ class EpisodeHandle:
 		metadata: Optional[Dict[str, Any]] = None,
 		reraise: bool = True,
 	) -> Any:
-		"""Execute a tool and log tool_call/tool_result around it."""
 
 		if tool_name is None:
 			tool_name = getattr(tool_fn, "__name__", "tool")

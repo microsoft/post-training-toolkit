@@ -1,13 +1,3 @@
-"""Throughput tracking for training performance.
-
-Measures:
-- Tokens per second
-- Samples per second  
-- GPU utilization efficiency
-- Dataloader vs compute balance
-
-Helps identify whether training is compute-bound, memory-bound, or I/O-bound.
-"""
 
 from __future__ import annotations
 
@@ -16,10 +6,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from collections import deque
 
-
 @dataclass
 class ThroughputSample:
-    """Single throughput measurement."""
     step: int
     tokens_per_sec: Optional[float] = None
     samples_per_sec: Optional[float] = None
@@ -27,55 +15,31 @@ class ThroughputSample:
     batch_size: Optional[int] = None
     seq_length: Optional[int] = None
 
-
 @dataclass 
 class ThroughputReport:
-    """Aggregated throughput report."""
     mean_tokens_per_sec: Optional[float]
     mean_samples_per_sec: Optional[float]
     peak_tokens_per_sec: Optional[float]
     total_tokens: int
     total_samples: int
     total_time_sec: float
-    efficiency_estimate: Optional[float]  # 0-1, how close to theoretical max
-    bottleneck: Optional[str]  # "compute", "memory", "io", or None
+    efficiency_estimate: Optional[float]
+    bottleneck: Optional[str]
     
 
 class ThroughputTracker:
-    """Tracks training throughput over time.
-    
-    Usage:
-        tracker = ThroughputTracker()
-        
-        for step, batch in enumerate(dataloader):
-            tracker.start_step()
-            # ... training ...
-            tracker.end_step(
-                num_tokens=batch_size * seq_len,
-                num_samples=batch_size
-            )
-            
-        print(tracker.report())
-    """
     
     def __init__(self, window_size: int = 100):
-        """Initialize throughput tracker.
-        
-        Args:
-            window_size: Window for moving average calculations
-        """
         self.window_size = window_size
         self.samples: List[ThroughputSample] = []
         
         self._step_start: Optional[float] = None
         self._current_step: int = 0
         
-        # Running totals
         self._total_tokens: int = 0
         self._total_samples: int = 0
         self._total_time: float = 0.0
         
-        # For efficiency estimation
         self._model_params: Optional[int] = None
         self._theoretical_max_tps: Optional[float] = None
         
@@ -84,17 +48,10 @@ class ThroughputTracker:
         num_params: Optional[int] = None,
         theoretical_max_tps: Optional[float] = None
     ) -> None:
-        """Set model info for efficiency calculations.
-        
-        Args:
-            num_params: Number of model parameters
-            theoretical_max_tps: Known theoretical max tokens/sec for this setup
-        """
         self._model_params = num_params
         self._theoretical_max_tps = theoretical_max_tps
         
     def start_step(self) -> None:
-        """Mark start of a training step."""
         self._step_start = time.perf_counter()
         
     def end_step(
@@ -104,32 +61,17 @@ class ThroughputTracker:
         batch_size: Optional[int] = None,
         seq_length: Optional[int] = None,
     ) -> ThroughputSample:
-        """Mark end of training step and record throughput.
-        
-        Args:
-            num_tokens: Total tokens processed this step
-            num_samples: Number of samples/sequences processed
-            batch_size: Batch size (alternative to num_samples)
-            seq_length: Sequence length (used with batch_size to calc tokens)
-            
-        Returns:
-            ThroughputSample for this step
-        """
         if self._step_start is None:
-            # Auto-start if not explicitly started
             duration = 0.0
         else:
             duration = time.perf_counter() - self._step_start
             
-        # Calculate num_samples if not provided
         if num_samples is None and batch_size is not None:
             num_samples = batch_size
             
-        # Calculate num_tokens if not provided
         if num_tokens is None and batch_size is not None and seq_length is not None:
             num_tokens = batch_size * seq_length
             
-        # Calculate rates
         tokens_per_sec = None
         samples_per_sec = None
         
@@ -149,7 +91,6 @@ class ThroughputTracker:
         )
         self.samples.append(sample)
         
-        # Update totals
         if num_tokens:
             self._total_tokens += num_tokens
         if num_samples:
@@ -161,14 +102,6 @@ class ThroughputTracker:
         return sample
         
     def get_recent_throughput(self, window: Optional[int] = None) -> Dict[str, Optional[float]]:
-        """Get average throughput over recent steps.
-        
-        Args:
-            window: Number of recent steps (default: self.window_size)
-            
-        Returns:
-            Dict with tokens_per_sec and samples_per_sec
-        """
         window = window or self.window_size
         recent = self.samples[-window:] if self.samples else []
         
@@ -181,15 +114,9 @@ class ThroughputTracker:
         }
         
     def detect_bottleneck(self) -> Optional[str]:
-        """Attempt to detect training bottleneck.
-        
-        Returns:
-            "compute", "memory", "io", or None if can't determine
-        """
         if len(self.samples) < 20:
             return None
             
-        # Look at throughput variance - high variance often indicates I/O issues
         recent = self.samples[-50:]
         token_rates = [s.tokens_per_sec for s in recent if s.tokens_per_sec]
         
@@ -198,24 +125,21 @@ class ThroughputTracker:
             
         mean_rate = sum(token_rates) / len(token_rates)
         variance = sum((r - mean_rate) ** 2 for r in token_rates) / len(token_rates)
-        cv = (variance ** 0.5) / mean_rate if mean_rate > 0 else 0  # Coefficient of variation
+        cv = (variance ** 0.5) / mean_rate if mean_rate > 0 else 0
         
-        # High variance suggests I/O or dataloader issues
         if cv > 0.3:
             return "io"
             
-        # If we have theoretical max, we can estimate compute vs memory bound
         if self._theoretical_max_tps is not None:
             efficiency = mean_rate / self._theoretical_max_tps
             if efficiency < 0.5:
-                return "memory"  # Not hitting compute limits, likely memory bound
+                return "memory"
             elif efficiency > 0.8:
-                return "compute"  # Close to theoretical max
+                return "compute"
                 
         return None
         
     def report(self) -> ThroughputReport:
-        """Generate throughput report."""
         if not self.samples:
             return ThroughputReport(
                 mean_tokens_per_sec=None,
@@ -234,7 +158,6 @@ class ThroughputTracker:
         mean_tps = sum(token_rates) / len(token_rates) if token_rates else None
         peak_tps = max(token_rates) if token_rates else None
         
-        # Calculate efficiency
         efficiency = None
         if mean_tps and self._theoretical_max_tps:
             efficiency = mean_tps / self._theoretical_max_tps
@@ -251,7 +174,6 @@ class ThroughputTracker:
         )
         
     def format_report(self) -> str:
-        """Format throughput report as human-readable string."""
         r = self.report()
         
         lines = ["Throughput Report", "=" * 40]

@@ -1,15 +1,3 @@
-"""Postmortem recording for crashed/interrupted training runs.
-
-Automatically captures diagnostic information when runs terminate unexpectedly:
-- Exit reason classification (OOM, SIGTERM, NaN, divergence, exception)
-- Last completed step
-- Recent metrics and diagnostic events
-- Traceback (if applicable)
-- Environment metadata
-
-This information is stored alongside run artifacts, making failures
-inspectable without rerunning jobs.
-"""
 from __future__ import annotations
 
 import atexit
@@ -26,9 +14,7 @@ from post_training_toolkit.models.artifacts import (
     get_environment_info,
 )
 
-
 class ExitReason:
-    """Exit reason classifications."""
     COMPLETED = "completed"
     OOM = "oom"
     SIGTERM = "sigterm"
@@ -38,10 +24,7 @@ class ExitReason:
     EXCEPTION = "exception"
     UNKNOWN = "unknown"
 
-
-# Ring buffer for recent events/metrics
 class RingBuffer:
-    """Simple ring buffer for storing recent items."""
     
     def __init__(self, maxlen: int = 50):
         self.maxlen = maxlen
@@ -58,31 +41,7 @@ class RingBuffer:
     def clear(self) -> None:
         self._items.clear()
 
-
 class PostmortemRecorder:
-    """Records postmortem information on abnormal termination.
-    
-    Installs hooks for:
-    - sys.excepthook (unhandled exceptions)
-    - signal handlers (SIGTERM, SIGINT)
-    - atexit (normal exit but run not marked complete)
-    
-    Usage:
-        recorder = PostmortemRecorder(artifact_manager)
-        recorder.install()
-        
-        # During training:
-        recorder.record_step(step)
-        recorder.record_metrics(step, metrics)
-        recorder.record_event("checkpoint_saved", {"path": "..."})
-        
-        # On normal completion:
-        recorder.finalize()
-        
-    Preemption-safe checkpointing:
-        # Register a callback to save checkpoint on SIGTERM/SIGINT
-        recorder.set_checkpoint_callback(lambda: trainer.save_model("preemption_ckpt"))
-    """
     
     def __init__(
         self,
@@ -90,13 +49,6 @@ class PostmortemRecorder:
         max_recent_events: int = 50,
         max_recent_metrics: int = 20,
     ):
-        """Initialize postmortem recorder.
-        
-        Args:
-            artifact_manager: Manages artifact directory
-            max_recent_events: Max events to retain in ring buffer
-            max_recent_metrics: Max metric snapshots to retain
-        """
         self.artifact_manager = artifact_manager
         self._recent_events = RingBuffer(max_recent_events)
         self._recent_metrics = RingBuffer(max_recent_metrics)
@@ -111,56 +63,30 @@ class PostmortemRecorder:
         self._checkpoint_callback: Optional[Callable[[], None]] = None
     
     def install(self) -> None:
-        """Install exception and signal handlers.
-        
-        Should be called early in training setup.
-        """
         if self._installed or not self.artifact_manager.is_main_process:
             return
         
-        # Install exception hook
         self._original_excepthook = sys.excepthook
         sys.excepthook = self._exception_handler
         
-        # Install signal handlers
         try:
             self._original_sigterm = signal.signal(signal.SIGTERM, self._sigterm_handler)
         except (ValueError, OSError):
-            pass  # Can't set handler in some contexts
+            pass
         
         try:
             self._original_sigint = signal.signal(signal.SIGINT, self._sigint_handler)
         except (ValueError, OSError):
             pass
         
-        # Install atexit handler
         atexit.register(self._atexit_handler)
         
         self._installed = True
     
     def set_checkpoint_callback(self, callback: Callable[[], None]) -> None:
-        """Set callback to save checkpoint on preemption (SIGTERM/SIGINT).
-        
-        The callback should save a checkpoint as quickly as possible.
-        It will be called before the postmortem is written and before exit.
-        
-        Args:
-            callback: Function that saves a checkpoint (no args, no return)
-            
-        Example:
-            recorder.set_checkpoint_callback(lambda: trainer.save_model("preemption_ckpt"))
-        """
         self._checkpoint_callback = callback
     
     def _save_preemption_checkpoint(self, reason: str) -> bool:
-        """Attempt to save a checkpoint on preemption.
-        
-        Args:
-            reason: Why checkpoint is being saved (sigterm, sigint)
-            
-        Returns:
-            True if checkpoint was saved successfully
-        """
         if self._checkpoint_callback is None:
             return False
         
@@ -184,7 +110,6 @@ class PostmortemRecorder:
             return False
     
     def uninstall(self) -> None:
-        """Restore original handlers."""
         if not self._installed:
             return
         
@@ -206,20 +131,9 @@ class PostmortemRecorder:
         self._installed = False
     
     def record_step(self, step: int) -> None:
-        """Record the current training step.
-        
-        Args:
-            step: Current step number
-        """
         self._last_step = step
     
     def record_metrics(self, step: int, metrics: Dict[str, Any]) -> None:
-        """Record a metrics snapshot.
-        
-        Args:
-            step: Step number
-            metrics: Metrics dict
-        """
         self._recent_metrics.append({
             "step": step,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -228,12 +142,6 @@ class PostmortemRecorder:
         self._last_step = max(self._last_step, step)
     
     def record_event(self, event_type: str, data: Optional[Dict[str, Any]] = None) -> None:
-        """Record a diagnostic event.
-        
-        Args:
-            event_type: Type of event (e.g., "checkpoint_saved", "nan_detected")
-            data: Optional event data
-        """
         self._recent_events.append({
             "type": event_type,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -242,14 +150,6 @@ class PostmortemRecorder:
         })
     
     def check_for_nan(self, metrics: Dict[str, Any]) -> bool:
-        """Check metrics for NaN values and record if found.
-        
-        Args:
-            metrics: Metrics dict to check
-            
-        Returns:
-            True if NaN was found
-        """
         import math
         
         nan_keys = []
@@ -269,20 +169,9 @@ class PostmortemRecorder:
         loss_threshold: float = 100.0,
         kl_threshold: float = 50.0,
     ) -> bool:
-        """Check for signs of divergence.
-        
-        Args:
-            metrics: Metrics dict to check
-            loss_threshold: Loss value indicating divergence
-            kl_threshold: KL value indicating divergence
-            
-        Returns:
-            True if divergence detected
-        """
         diverged = False
         reasons = []
         
-        # Check loss
         for loss_key in ["loss", "dpo_loss", "ppo_loss", "sft_loss"]:
             if loss_key in metrics:
                 val = metrics[loss_key]
@@ -290,7 +179,6 @@ class PostmortemRecorder:
                     reasons.append(f"{loss_key}={val}")
                     diverged = True
         
-        # Check KL
         if "kl" in metrics:
             kl = metrics["kl"]
             if isinstance(kl, (int, float)) and kl > kl_threshold:
@@ -309,69 +197,55 @@ class PostmortemRecorder:
         exc_value: BaseException,
         exc_tb,
     ) -> None:
-        """Handle unhandled exceptions."""
-        # Store exception info
         self._exception_info = (exc_type, exc_value, exc_tb)
         
-        # Check for OOM
         if self._is_oom_error(exc_type, exc_value):
             self._exit_reason = ExitReason.OOM
         else:
             self._exit_reason = ExitReason.EXCEPTION
         
-        # Record event
         tb_str = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
         self.record_event("exception", {
             "type": exc_type.__name__,
             "message": str(exc_value),
-            "traceback": tb_str[:5000],  # Limit size
+            "traceback": tb_str[:5000],
         })
         
-        # Write postmortem
         self._write_postmortem()
         
-        # Call original handler
         if self._original_excepthook:
             self._original_excepthook(exc_type, exc_value, exc_tb)
     
     def _sigterm_handler(self, signum: int, frame) -> None:
-        """Handle SIGTERM with preemption-safe checkpoint."""
         self._exit_reason = ExitReason.SIGTERM
         self.record_event("sigterm_received", {"signal": signum, "step": self._last_step})
         
-        # Save checkpoint before exit (preemption safety)
         self._save_preemption_checkpoint("sigterm")
         
         self._write_postmortem()
         
-        # Call original handler or exit
         if self._original_sigterm and callable(self._original_sigterm):
             self._original_sigterm(signum, frame)
         else:
             sys.exit(128 + signum)
     
     def _sigint_handler(self, signum: int, frame) -> None:
-        """Handle SIGINT (Ctrl+C) with preemption-safe checkpoint."""
         self._exit_reason = ExitReason.SIGINT
         self.record_event("sigint_received", {"signal": signum, "step": self._last_step})
         
-        # Save checkpoint before exit (preemption safety)
         self._save_preemption_checkpoint("sigint")
         
         self._write_postmortem()
         
-        # Call original handler or raise KeyboardInterrupt
         if self._original_sigint and callable(self._original_sigint):
             self._original_sigint(signum, frame)
         else:
             raise KeyboardInterrupt
     
     def _atexit_handler(self) -> None:
-        """Handle normal exit without explicit finalization."""
         if self._finalized:
             return
         
-        # If we're exiting without finalize(), something went wrong
         if self._exit_reason is None:
             self._exit_reason = ExitReason.UNKNOWN
             self.record_event("unexpected_exit", {})
@@ -379,29 +253,23 @@ class PostmortemRecorder:
         self._write_postmortem()
     
     def _is_oom_error(self, exc_type: type, exc_value: BaseException) -> bool:
-        """Check if exception is an OOM error."""
-        # Check for CUDA OOM
         exc_str = str(exc_value).lower()
         if "cuda" in exc_str and ("out of memory" in exc_str or "oom" in exc_str):
             return True
         
-        # Check for RuntimeError with CUDA OOM
         if exc_type.__name__ == "RuntimeError":
             if "cuda" in exc_str and "memory" in exc_str:
                 return True
         
-        # Check for torch.cuda.OutOfMemoryError
         if exc_type.__name__ == "OutOfMemoryError":
             return True
         
-        # Check for MemoryError
         if exc_type.__name__ == "MemoryError":
             return True
         
         return False
     
     def _extract_cuda_error(self) -> Optional[str]:
-        """Try to extract CUDA error information."""
         if self._exception_info is None:
             return None
         
@@ -414,11 +282,9 @@ class PostmortemRecorder:
         return None
     
     def _write_postmortem(self) -> None:
-        """Write postmortem data to disk."""
         if not self.artifact_manager.is_main_process:
             return
         
-        # Don't write if output directory no longer exists (e.g., temp dir cleaned up)
         if not self.artifact_manager.run_dir.exists():
             return
         
@@ -426,14 +292,12 @@ class PostmortemRecorder:
         if self._exception_info:
             tb_str = "".join(traceback.format_exception(*self._exception_info))
         
-        # Build last metrics summary
         recent_metrics = self._recent_metrics.get_all()
         last_metrics = recent_metrics[-1]["metrics"] if recent_metrics else {}
         
-        # Build recent events list
         recent_events = [
             f"[{e['timestamp']}] {e['type']}: {e.get('data', {})}"
-            for e in self._recent_events.get_all()[-20:]  # Last 20 events
+            for e in self._recent_events.get_all()[-20:]
         ]
         
         postmortem = Postmortem(
@@ -450,34 +314,18 @@ class PostmortemRecorder:
         self.artifact_manager.save_postmortem(postmortem)
     
     def finalize(self) -> None:
-        """Mark run as completed normally.
-        
-        Call this at the end of successful training to prevent
-        postmortem from being written on normal exit.
-        """
         self._finalized = True
         self.uninstall()
     
     @property
     def last_step(self) -> int:
-        """Return last recorded step."""
         return self._last_step
     
     @property
     def exit_reason(self) -> Optional[str]:
-        """Return detected exit reason (if any)."""
         return self._exit_reason
 
-
 def format_postmortem_report(postmortem: Postmortem) -> str:
-    """Format postmortem data as human-readable text.
-    
-    Args:
-        postmortem: Postmortem object to format
-        
-    Returns:
-        Formatted string
-    """
     lines = [
         "## Postmortem Report",
         f"**Exit Reason:** {postmortem.exit_reason.upper()}",
@@ -486,16 +334,13 @@ def format_postmortem_report(postmortem: Postmortem) -> str:
         "",
     ]
     
-    # CUDA error if present
     if postmortem.cuda_error:
         lines.append("### CUDA Error")
         lines.append(f"```\n{postmortem.cuda_error}\n```")
         lines.append("")
     
-    # Traceback if present
     if postmortem.traceback:
         lines.append("### Traceback")
-        # Truncate if too long
         tb = postmortem.traceback
         if len(tb) > 3000:
             tb = tb[-3000:]
@@ -503,7 +348,6 @@ def format_postmortem_report(postmortem: Postmortem) -> str:
         lines.append(f"```\n{tb}\n```")
         lines.append("")
     
-    # Last metrics
     if postmortem.last_metrics:
         lines.append("### Last Metrics")
         for key, value in sorted(postmortem.last_metrics.items()):
@@ -513,14 +357,12 @@ def format_postmortem_report(postmortem: Postmortem) -> str:
                 lines.append(f"- {key}: {value}")
         lines.append("")
     
-    # Recent events
     if postmortem.recent_events:
         lines.append("### Recent Events")
         for event in postmortem.recent_events[-10:]:
             lines.append(f"- {event}")
         lines.append("")
     
-    # Environment info
     lines.append("### Environment")
     env = postmortem.environment
     if "python_version" in env:

@@ -1,21 +1,3 @@
-"""Heuristics library for detecting RLHF training issues.
-
-This module provides algorithm-specific heuristics for detecting common failure
-modes in post-training runs. Heuristics are organized by trainer type:
-
-- **Common**: Apply to all trainer types
-- **DPO-specific**: Loss at 0.693, margin collapse, win-rate instability
-- **PPO-specific**: Value head divergence, entropy collapse, advantage explosion
-- **SFT-specific**: Loss plateau, perplexity spikes
-- **ORPO-specific**: Odds ratio instability
-- **KTO-specific**: Desirable/undesirable imbalance
-
-References:
-- Rafailov et al. (2023) "Direct Preference Optimization"
-- Schulman et al. (2017) "Proximal Policy Optimization Algorithms"
-- Zheng et al. (2023) "Secrets of RLHF in Large Language Models"
-- Hong et al. (2024) "ORPO: Monolithic Preference Optimization without Reference Model"
-"""
 
 import math
 from dataclasses import dataclass, field
@@ -25,8 +7,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import linregress
 
-
-# Trainer type constants (mirror callback)
 class TrainerType:
     DPO = "dpo"
     PPO = "ppo"
@@ -37,20 +17,8 @@ class TrainerType:
     GRPO = "grpo"
     UNKNOWN = "unknown"
 
-
 @dataclass
 class Insight:
-    """A diagnostic insight detected by a heuristic.
-    
-    Attributes:
-        type: Unique identifier for this insight type (e.g., "dpo_loss_random")
-        severity: One of "high", "medium", "low"
-        message: Human-readable description of the issue
-        steps: List of training steps where this issue was detected
-        data: Additional diagnostic data (thresholds, values, etc.)
-        trainer_types: Set of trainer types this insight applies to
-        reference: Optional citation or documentation link
-    """
     type: str
     severity: str
     message: str
@@ -59,31 +27,15 @@ class Insight:
     trainer_types: Set[str] = field(default_factory=lambda: {TrainerType.UNKNOWN})
     reference: Optional[str] = None
 
-
 def _rolling_std_ratio(series: pd.Series, window_short: int, window_long: int) -> pd.Series:
-    """Compute ratio of short-term to long-term rolling standard deviation."""
     short = series.rolling(window_short, min_periods=max(2, window_short // 2)).std()
     long = series.rolling(window_long, min_periods=max(2, window_long // 2)).std()
     with np.errstate(divide="ignore", invalid="ignore"):
         ratio = short / long
     return ratio.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
-
-# =============================================================================
-# COMMON HEURISTICS (all trainers)
-# =============================================================================
-
 def detect_reward_variance_spikes(df: pd.DataFrame, window_short: int = 10, window_long: int = 50,
                                   ratio_threshold: float = 2.5) -> List[Insight]:
-    """Detect sudden spikes in reward variance.
-    
-    High reward variance can indicate:
-    - Reward model instability
-    - Distribution shift in training data
-    - Learning rate too high
-    
-    Reference: Zheng et al. (2023) "Secrets of RLHF", Section 4.1
-    """
     if "reward_mean" not in df.columns or "reward_std" not in df.columns:
         return []
     variance_signal = df["reward_std"].copy()
@@ -104,16 +56,8 @@ def detect_reward_variance_spikes(df: pd.DataFrame, window_short: int = 10, wind
         )]
     return []
 
-
 def detect_kl_instability(df: pd.DataFrame, kl_target: float = 0.12, hard_cap: float = 0.3,
                           roc_threshold: float = 0.05) -> List[Insight]:
-    """Detect KL divergence exceeding safe thresholds.
-    
-    High KL indicates the policy is drifting too far from the reference,
-    which can lead to reward hacking and capability loss.
-    
-    Reference: Schulman et al. (2017) "PPO"; Rafailov et al. (2023) "DPO"
-    """
     if "kl" not in df.columns:
         return []
     kl = df["kl"].astype(float)
@@ -154,14 +98,8 @@ def detect_kl_instability(df: pd.DataFrame, kl_target: float = 0.12, hard_cap: f
         ))
     return insights
 
-
 def detect_policy_drift(df: pd.DataFrame, cosine_key: str = "embedding_cosine_to_sft",
                         warn_threshold: float = 0.92, alert_threshold: float = 0.88) -> List[Insight]:
-    """Detect excessive policy drift from the SFT/reference model.
-    
-    Low cosine similarity indicates the policy has diverged significantly,
-    risking capability regression and mode collapse.
-    """
     if cosine_key not in df.columns:
         return []
     cos = df[cosine_key].astype(float)
@@ -192,15 +130,9 @@ def detect_policy_drift(df: pd.DataFrame, cosine_key: str = "embedding_cosine_to
         )]
     return []
 
-
 def detect_slice_degradation(df: pd.DataFrame, slice_prefix: str = "slice:", 
                              baseline_window: int = 50, recent_window: int = 50,
                              relative_drop_threshold: float = 0.08) -> List[Insight]:
-    """Detect capability regression on specific evaluation slices.
-    
-    Monitors slice:medical, slice:coding, slice:safety etc. for degradation
-    compared to early training baseline.
-    """
     slice_cols = [c for c in df.columns if c.startswith(slice_prefix)]
     if not slice_cols:
         return []
@@ -229,10 +161,8 @@ def detect_slice_degradation(df: pd.DataFrame, slice_prefix: str = "slice:",
             ))
     return insights
 
-
 def detect_output_length_collapse(df: pd.DataFrame, window: int = 30, 
                                   relative_drop_threshold: float = 0.2) -> List[Insight]:
-    """Detect collapse in output length (often sign of mode collapse)."""
     if "output_length_mean" not in df.columns:
         return []
     baseline = float(df["output_length_mean"].head(window).mean())
@@ -251,11 +181,9 @@ def detect_output_length_collapse(df: pd.DataFrame, window: int = 30,
             )]
     return []
 
-
 def detect_refusal_regressions(df: pd.DataFrame, warn_threshold: float = 0.12, 
                                alert_threshold: float = 0.2, uptick_threshold: float = 0.05,
                                window: int = 40) -> List[Insight]:
-    """Detect rising refusal rates (safety regression or over-refusal)."""
     if "refusal_rate" not in df.columns:
         return []
     refusal = df["refusal_rate"].astype(float)
@@ -298,10 +226,8 @@ def detect_refusal_regressions(df: pd.DataFrame, warn_threshold: float = 0.12,
             ))
     return insights
 
-
 def detect_instability_window(df: pd.DataFrame, fields: Tuple[str, ...] = ("reward_mean", "kl"),
                               window: int = 30, volatility_threshold: float = 1.0) -> List[Insight]:
-    """Detect periods of high combined instability across multiple metrics."""
     missing = [f for f in fields if f not in df.columns]
     if missing:
         return []
@@ -328,17 +254,8 @@ def detect_instability_window(df: pd.DataFrame, fields: Tuple[str, ...] = ("rewa
         )]
     return []
 
-
 def detect_reward_hacking(df: pd.DataFrame, window: int = 50,
                           kl_reward_ratio_threshold: float = 3.0) -> List[Insight]:
-    """Detect reward hacking (Goodhart's law) during RLHF training.
-    
-    Signal: reward increasing while KL divergence explodes disproportionately.
-    This indicates the model is gaming the reward model rather than genuinely
-    improving on the underlying task.
-    
-    Reference: Gao et al. (2022) 'Scaling Laws for Reward Model Overoptimization'
-    """
     if "reward_mean" not in df.columns or "kl" not in df.columns:
         return []
     
@@ -349,12 +266,10 @@ def detect_reward_hacking(df: pd.DataFrame, window: int = 50,
     reward = recent["reward_mean"].astype(float)
     kl = recent["kl"].astype(float)
     
-    # Compute slopes
     x = np.arange(len(reward))
     reward_slope = linregress(x, reward.values).slope
     kl_slope = linregress(x, kl.values).slope
     
-    # Hacking signal: reward going up, KL going up much faster
     if reward_slope > 0 and kl_slope > 0.005:
         ratio = kl_slope / (abs(reward_slope) + 1e-8)
         if ratio > kl_reward_ratio_threshold:
@@ -375,28 +290,16 @@ def detect_reward_hacking(df: pd.DataFrame, window: int = 50,
             )]
     return []
 
-
 def detect_mode_collapse(df: pd.DataFrame, window: int = 30,
                          length_variance_collapse_threshold: float = 0.2,
                          entropy_floor: float = 1.0,
                          entropy_drop_threshold: float = 0.5) -> List[Insight]:
-    """Detect mode collapse (outputs becoming uniform/repetitive).
-    
-    Signals:
-    - Output length variance collapsing (all outputs same length)
-    - Entropy collapsing (PPO/GRPO - policy too deterministic)
-    
-    Mode collapse is a common failure mode where the model converges to
-    generating nearly identical outputs regardless of input.
-    """
     insights = []
     
-    # Signal 1: Length variance collapse (from snapshots)
     if "output_length_mean" in df.columns and len(df) > window * 2:
         baseline_std = df["output_length_mean"].head(window).std()
         recent_std = df["output_length_mean"].tail(window).std()
         
-        # Only flag if baseline had meaningful variance
         if baseline_std > 1.0 and recent_std < baseline_std * length_variance_collapse_threshold:
             insights.append(Insight(
                 type="mode_collapse_length_variance",
@@ -412,12 +315,10 @@ def detect_mode_collapse(df: pd.DataFrame, window: int = 30,
                 trainer_types={TrainerType.DPO, TrainerType.PPO, TrainerType.GRPO, TrainerType.ORPO},
             ))
     
-    # Signal 2: Entropy collapse (PPO/GRPO log this by default)
     if "entropy" in df.columns and len(df) > window:
         recent_entropy = df["entropy"].tail(window).mean()
         baseline_entropy = df["entropy"].head(window).mean()
         
-        # Absolute floor check
         if recent_entropy < entropy_floor:
             insights.append(Insight(
                 type="mode_collapse_entropy",
@@ -432,7 +333,6 @@ def detect_mode_collapse(df: pd.DataFrame, window: int = 30,
                 },
                 trainer_types={TrainerType.PPO, TrainerType.GRPO},
             ))
-        # Relative drop check
         elif baseline_entropy > 0 and recent_entropy < baseline_entropy * (1 - entropy_drop_threshold):
             drop_pct = (baseline_entropy - recent_entropy) / baseline_entropy * 100
             insights.append(Insight(
@@ -450,26 +350,16 @@ def detect_mode_collapse(df: pd.DataFrame, window: int = 30,
     
     return insights
 
-
 def detect_gradient_issues(df: pd.DataFrame, window: int = 50,
                            explosion_multiplier: float = 10.0,
                            vanishing_multiplier: float = 0.01) -> List[Insight]:
-    """Detect gradient explosion or vanishing.
-    
-    Monitors grad_norm (logged by most Transformers trainers by default)
-    to catch optimization issues early.
-    
-    - Gradient explosion: sudden large increase in gradient norm
-    - Gradient vanishing: gradients dropping to near-zero (learning stalled)
-    """
     if "grad_norm" not in df.columns:
-        return []  # Gracefully skip if not logged
+        return []
     
     grad_norm = df["grad_norm"].astype(float)
     if len(grad_norm) < window:
         return []
     
-    # Use early training as baseline
     baseline_mean = grad_norm.head(min(window, len(grad_norm) // 3)).mean()
     baseline_std = grad_norm.head(min(window, len(grad_norm) // 3)).std()
     recent_mean = grad_norm.tail(window).mean()
@@ -477,7 +367,6 @@ def detect_gradient_issues(df: pd.DataFrame, window: int = 50,
     
     insights = []
     
-    # Gradient explosion: current >> baseline
     if baseline_mean > 0 and current > baseline_mean * explosion_multiplier:
         insights.append(Insight(
             type="gradient_explosion",
@@ -495,7 +384,6 @@ def detect_gradient_issues(df: pd.DataFrame, window: int = 50,
                           TrainerType.GRPO, TrainerType.ORPO, TrainerType.KTO},
         ))
     
-    # Gradient vanishing: current << baseline
     if baseline_mean > 0 and current < baseline_mean * vanishing_multiplier:
         insights.append(Insight(
             type="gradient_vanishing",
@@ -512,7 +400,6 @@ def detect_gradient_issues(df: pd.DataFrame, window: int = 50,
                           TrainerType.GRPO, TrainerType.ORPO, TrainerType.KTO},
         ))
     
-    # Also detect high variance (unstable training)
     recent_std = grad_norm.tail(window).std()
     if baseline_std > 0 and recent_std > baseline_std * 3:
         insights.append(Insight(
@@ -530,22 +417,7 @@ def detect_gradient_issues(df: pd.DataFrame, window: int = 50,
     
     return insights
 
-
-# =============================================================================
-# DPO-SPECIFIC HEURISTICS
-# =============================================================================
-
 def detect_dpo_loss_random(df: pd.DataFrame, window: int = 10) -> List[Insight]:
-    """Detect DPO loss stuck at ~0.693 (random chance = ln(2)).
-    
-    When DPO loss stays near 0.693, the model cannot distinguish chosen from
-    rejected responses. This indicates:
-    - Learning rate too low
-    - Beta too high (KL penalty dominates preference signal)
-    - Chosen/rejected pairs too similar or mislabeled
-    
-    Reference: Rafailov et al. (2023) "DPO", Section 4.2
-    """
     if "dpo_loss" not in df.columns:
         return []
     loss = df["dpo_loss"].astype(float)
@@ -555,7 +427,6 @@ def detect_dpo_loss_random(df: pd.DataFrame, window: int = 10) -> List[Insight]:
     recent = loss.tail(window)
     mean_loss = float(recent.mean())
     
-    # ln(2) ≈ 0.693 is random chance for binary classification
     if abs(mean_loss - 0.693) < 0.02:
         return [Insight(
             type="dpo_loss_random",
@@ -568,10 +439,8 @@ def detect_dpo_loss_random(df: pd.DataFrame, window: int = 10) -> List[Insight]:
         )]
     return []
 
-
 def detect_dpo_loss_plateau(df: pd.DataFrame, window: int = 20, 
                             slope_threshold: float = 0.0001) -> List[Insight]:
-    """Detect when DPO loss stops decreasing (plateau)."""
     if "dpo_loss" not in df.columns:
         return []
     loss = df["dpo_loss"].astype(float)
@@ -592,17 +461,8 @@ def detect_dpo_loss_plateau(df: pd.DataFrame, window: int = 20,
             )]
     return []
 
-
 def detect_dpo_win_rate_instability(df: pd.DataFrame, window: int = 5, 
                                     volatility_threshold: float = 0.3) -> List[Insight]:
-    """Detect high variance in DPO win rate (rewards/accuracies).
-    
-    High win rate volatility indicates the model is inconsistently learning
-    preferences, often due to:
-    - Small batch sizes
-    - Noisy preference data
-    - Learning rate too high
-    """
     if "win_rate" not in df.columns:
         return []
     win_rate = df["win_rate"].astype(float)
@@ -623,21 +483,14 @@ def detect_dpo_win_rate_instability(df: pd.DataFrame, window: int = 5,
         )]
     return []
 
-
 def detect_dpo_margin_collapse(df: pd.DataFrame, window: int = 20, 
                                margin_threshold: float = 0.1) -> List[Insight]:
-    """Detect collapse in chosen/rejected reward margin.
-    
-    When the margin between chosen and rejected rewards becomes too small,
-    the model loses signal for preference learning.
-    """
     if "reward_margin" not in df.columns and "rewards_chosen" not in df.columns:
         return []
     
     if "reward_margin" in df.columns:
         margin = df["reward_margin"].astype(float)
     else:
-        # Compute margin from chosen/rejected
         chosen = df.get("rewards_chosen", df.get("logps_chosen", pd.Series()))
         rejected = df.get("rewards_rejected", df.get("logps_rejected", pd.Series()))
         if len(chosen) == 0 or len(rejected) == 0:
@@ -662,10 +515,8 @@ def detect_dpo_margin_collapse(df: pd.DataFrame, window: int = 20,
         )]
     return []
 
-
 def detect_win_rate_plateau(df: pd.DataFrame, key: str = "win_rate", window: int = 80,
                             slope_threshold: float = 0.001) -> List[Insight]:
-    """Detect when win rate stops improving (plateau)."""
     if key not in df.columns:
         return []
     series = df[key].astype(float)
@@ -686,20 +537,8 @@ def detect_win_rate_plateau(df: pd.DataFrame, key: str = "win_rate", window: int
         )]
     return []
 
-
-# =============================================================================
-# PPO-SPECIFIC HEURISTICS
-# =============================================================================
-
 def detect_ppo_value_head_divergence(df: pd.DataFrame, window: int = 20,
                                      value_loss_threshold: float = 0.5) -> List[Insight]:
-    """Detect value head divergence in PPO training.
-    
-    When value loss is too high, the critic cannot accurately estimate returns,
-    leading to high-variance policy gradients and training instability.
-    
-    Reference: Schulman et al. (2017) "PPO", Section 4
-    """
     if "value_loss" not in df.columns:
         return []
     
@@ -709,7 +548,6 @@ def detect_ppo_value_head_divergence(df: pd.DataFrame, window: int = 20,
     
     if high_loss_steps:
         max_loss = float(value_loss.max())
-        # Check if value loss is increasing
         recent = value_loss.tail(window)
         slope = linregress(np.arange(len(recent)), recent.values).slope if len(recent) >= 3 else 0.0
         
@@ -724,17 +562,9 @@ def detect_ppo_value_head_divergence(df: pd.DataFrame, window: int = 20,
         )]
     return []
 
-
 def detect_ppo_entropy_collapse(df: pd.DataFrame, window: int = 30,
                                 entropy_floor: float = 0.1,
                                 relative_drop_threshold: float = 0.5) -> List[Insight]:
-    """Detect entropy collapse in PPO (policy becoming too deterministic too fast).
-    
-    Low entropy means the policy is very confident/deterministic. If entropy
-    drops too quickly, the policy may be collapsing to a local optimum.
-    
-    Reference: Mnih et al. (2016) "A3C" - Entropy regularization prevents premature convergence
-    """
     if "entropy" not in df.columns:
         return []
     
@@ -745,7 +575,6 @@ def detect_ppo_entropy_collapse(df: pd.DataFrame, window: int = 30,
     initial_entropy = float(entropy.head(window).mean())
     recent_entropy = float(entropy.tail(window).mean())
     
-    # Check for absolute floor
     if recent_entropy < entropy_floor:
         return [Insight(
             type="entropy_collapse",
@@ -758,7 +587,6 @@ def detect_ppo_entropy_collapse(df: pd.DataFrame, window: int = 30,
             reference="Low entropy indicates policy is too deterministic - consider increasing entropy bonus",
         )]
     
-    # Check for relative drop
     if initial_entropy > 0:
         drop = (initial_entropy - recent_entropy) / initial_entropy
         if drop > relative_drop_threshold:
@@ -773,15 +601,7 @@ def detect_ppo_entropy_collapse(df: pd.DataFrame, window: int = 30,
             )]
     return []
 
-
 def detect_ppo_advantage_explosion(df: pd.DataFrame, std_threshold: float = 5.0) -> List[Insight]:
-    """Detect exploding advantages in PPO training.
-    
-    Large advantage values indicate the value function is poorly calibrated
-    or the reward scale is unstable, leading to destructive policy updates.
-    
-    Reference: Engstrom et al. (2020) "Implementation Matters in Deep RL"
-    """
     if "advantages_std" not in df.columns and "advantages_mean" not in df.columns:
         return []
     
@@ -803,18 +623,8 @@ def detect_ppo_advantage_explosion(df: pd.DataFrame, std_threshold: float = 5.0)
             )]
     return []
 
-
 def detect_ppo_clip_fraction_high(df: pd.DataFrame, window: int = 20,
                                   clip_threshold: float = 0.3) -> List[Insight]:
-    """Detect when PPO clip fraction is too high.
-    
-    High clip fraction means many policy updates are being clipped, indicating:
-    - Learning rate too high
-    - Policy changing too fast
-    - Need for more conservative updates
-    
-    Reference: Schulman et al. (2017) "PPO" - Clip fraction should typically be < 0.2
-    """
     if "clip_fraction" not in df.columns:
         return []
     
@@ -837,13 +647,7 @@ def detect_ppo_clip_fraction_high(df: pd.DataFrame, window: int = 20,
         )]
     return []
 
-
 def detect_ppo_approx_kl_spike(df: pd.DataFrame, kl_threshold: float = 0.02) -> List[Insight]:
-    """Detect approximate KL divergence spikes in PPO.
-    
-    High approx KL between old and new policy indicates the policy is changing
-    too aggressively, which can destabilize training.
-    """
     if "approx_kl" not in df.columns:
         return []
     
@@ -864,14 +668,8 @@ def detect_ppo_approx_kl_spike(df: pd.DataFrame, kl_threshold: float = 0.02) -> 
         )]
     return []
 
-
-# =============================================================================
-# SFT-SPECIFIC HEURISTICS
-# =============================================================================
-
 def detect_sft_loss_plateau(df: pd.DataFrame, window: int = 50,
                             slope_threshold: float = 0.0001) -> List[Insight]:
-    """Detect when SFT loss stops decreasing."""
     if "sft_loss" not in df.columns:
         return []
     
@@ -893,16 +691,8 @@ def detect_sft_loss_plateau(df: pd.DataFrame, window: int = 50,
         )]
     return []
 
-
 def detect_sft_perplexity_spike(df: pd.DataFrame, window: int = 10,
                                 spike_threshold: float = 2.0) -> List[Insight]:
-    """Detect sudden perplexity spikes in SFT training.
-    
-    Perplexity spikes often indicate:
-    - Gradient explosion
-    - Bad data batch
-    - Learning rate too high
-    """
     if "perplexity" not in df.columns:
         return []
     
@@ -930,17 +720,8 @@ def detect_sft_perplexity_spike(df: pd.DataFrame, window: int = 10,
         )]
     return []
 
-
-# =============================================================================
-# ORPO-SPECIFIC HEURISTICS
-# =============================================================================
-
 def detect_orpo_odds_ratio_instability(df: pd.DataFrame, window: int = 10,
                                        volatility_threshold: float = 0.5) -> List[Insight]:
-    """Detect instability in ORPO's odds ratio.
-    
-    Reference: Hong et al. (2024) "ORPO"
-    """
     if "log_odds_ratio" not in df.columns:
         return []
     
@@ -963,17 +744,8 @@ def detect_orpo_odds_ratio_instability(df: pd.DataFrame, window: int = 10,
         )]
     return []
 
-
-# =============================================================================
-# KTO-SPECIFIC HEURISTICS
-# =============================================================================
-
 def detect_kto_imbalance(df: pd.DataFrame, window: int = 20,
                          imbalance_threshold: float = 2.0) -> List[Insight]:
-    """Detect imbalance between desirable and undesirable losses in KTO.
-    
-    Large imbalance may indicate the model is overfitting to one type of example.
-    """
     if "desirable_loss" not in df.columns or "undesirable_loss" not in df.columns:
         return []
     
@@ -997,20 +769,8 @@ def detect_kto_imbalance(df: pd.DataFrame, window: int = 20,
             )]
     return []
 
-
-# =============================================================================
-# GRPO-SPECIFIC HEURISTICS (Group Relative Policy Optimization - DeepSeek)
-# =============================================================================
-
 def detect_grpo_group_reward_collapse(df: pd.DataFrame, window: int = 20,
                                        reward_threshold: float = 0.01) -> List[Insight]:
-    """Detect collapse in group reward variance.
-    
-    GRPO relies on reward variance within groups to compute advantages.
-    If group rewards become too uniform, learning signal diminishes.
-    
-    Reference: DeepSeek-R1 paper - GRPO uses group-relative advantages
-    """
     if "group_reward_std" not in df.columns:
         return []
     
@@ -1034,13 +794,8 @@ def detect_grpo_group_reward_collapse(df: pd.DataFrame, window: int = 20,
         )]
     return []
 
-
 def detect_grpo_advantage_explosion(df: pd.DataFrame, window: int = 20,
                                      advantage_threshold: float = 10.0) -> List[Insight]:
-    """Detect exploding advantages in GRPO.
-    
-    Large advantages can destabilize training and lead to policy collapse.
-    """
     if "group_advantage_mean" not in df.columns:
         return []
     
@@ -1060,14 +815,9 @@ def detect_grpo_advantage_explosion(df: pd.DataFrame, window: int = 20,
         )]
     return []
 
-
 def detect_grpo_entropy_collapse(df: pd.DataFrame, window: int = 30,
                                   entropy_floor: float = 0.1,
                                   relative_drop_threshold: float = 0.5) -> List[Insight]:
-    """Detect entropy collapse in GRPO (similar to PPO).
-    
-    GRPO can suffer from the same entropy collapse issues as PPO.
-    """
     if "entropy" not in df.columns:
         return []
     
@@ -1104,13 +854,8 @@ def detect_grpo_entropy_collapse(df: pd.DataFrame, window: int = 30,
             )]
     return []
 
-
 def detect_grpo_kl_divergence(df: pd.DataFrame, kl_target: float = 0.1,
                                hard_cap: float = 0.3) -> List[Insight]:
-    """Detect KL divergence issues in GRPO.
-    
-    GRPO can optionally use KL penalty. Monitor for excessive divergence.
-    """
     if "kl" not in df.columns:
         return []
     
@@ -1129,14 +874,8 @@ def detect_grpo_kl_divergence(df: pd.DataFrame, kl_target: float = 0.1,
         )]
     return []
 
-
 def detect_grpo_completion_length_drift(df: pd.DataFrame, window: int = 30,
                                          drift_threshold: float = 0.3) -> List[Insight]:
-    """Detect significant drift in completion lengths.
-    
-    GRPO can cause models to generate increasingly long or short completions
-    as a form of reward hacking.
-    """
     if "completion_length" not in df.columns:
         return []
     
@@ -1163,27 +902,16 @@ def detect_grpo_completion_length_drift(df: pd.DataFrame, window: int = 30,
             )]
     return []
 
-
 def detect_grpo_reward_length_correlation(df: pd.DataFrame, window: int = 50,
                                            correlation_threshold: float = 0.6) -> List[Insight]:
-    """Detect if GRPO rewards are correlated with output length.
-    
-    Strong correlation between reward and length indicates the model may be
-    gaming the reward by producing longer/shorter outputs rather than
-    genuinely improving quality.
-    
-    Reference: Singhal et al. (2023) 'A Long Way to Go' - length bias in RLHF
-    """
     reward_col = None
     length_col = None
     
-    # Find reward column
     for col in ["reward_mean", "group_reward_mean", "rewards"]:
         if col in df.columns:
             reward_col = col
             break
     
-    # Find length column
     for col in ["completion_length", "output_length_mean", "response_length"]:
         if col in df.columns:
             length_col = col
@@ -1199,7 +927,6 @@ def detect_grpo_reward_length_correlation(df: pd.DataFrame, window: int = 50,
     rewards = recent[reward_col].astype(float)
     lengths = recent[length_col].astype(float)
     
-    # Compute correlation
     if rewards.std() < 1e-8 or lengths.std() < 1e-8:
         return []
     
@@ -1224,16 +951,8 @@ def detect_grpo_reward_length_correlation(df: pd.DataFrame, window: int = 50,
         )]
     return []
 
-
 def detect_grpo_clip_ratio(df: pd.DataFrame, window: int = 20,
                            clip_threshold: float = 0.25) -> List[Insight]:
-    """Detect high clip ratio in GRPO (similar to PPO).
-    
-    GRPO uses importance sampling with clipping. High clip ratios indicate
-    the policy is changing too aggressively between updates.
-    
-    Reference: DeepSeek-R1 - GRPO uses PPO-style clipping
-    """
     clip_col = None
     for col in ["clip_fraction", "clip_ratio", "grpo_clip_fraction"]:
         if col in df.columns:
@@ -1267,14 +986,8 @@ def detect_grpo_clip_ratio(df: pd.DataFrame, window: int = 20,
         )]
     return []
 
-
 def detect_grpo_loss_divergence(df: pd.DataFrame, window: int = 30,
                                  divergence_threshold: float = 0.5) -> List[Insight]:
-    """Detect GRPO loss increasing (training diverging).
-    
-    If GRPO loss starts increasing after initial decrease, training may be
-    diverging due to reward hacking or optimization instability.
-    """
     loss_col = None
     for col in ["grpo_loss", "loss", "policy_loss"]:
         if col in df.columns:
@@ -1288,15 +1001,12 @@ def detect_grpo_loss_divergence(df: pd.DataFrame, window: int = 30,
     if len(loss) < window * 2:
         return []
     
-    # Compare early vs recent loss trend
     early_mean = float(loss.head(window).mean())
     recent_mean = float(loss.tail(window).mean())
     
-    # Check if loss is trending upward in recent window
     recent = loss.tail(window)
     slope = linregress(np.arange(len(recent)), recent.values).slope
     
-    # Flag if recent loss is higher than early AND trending up
     if recent_mean > early_mean and slope > 0.001:
         increase_pct = (recent_mean - early_mean) / (abs(early_mean) + 1e-8) * 100
         if increase_pct > divergence_threshold * 100:
@@ -1317,16 +1027,8 @@ def detect_grpo_loss_divergence(df: pd.DataFrame, window: int = 30,
             )]
     return []
 
-
 def detect_grpo_response_diversity_collapse(df: pd.DataFrame, window: int = 30,
                                              diversity_threshold: float = 0.3) -> List[Insight]:
-    """Detect collapse in response diversity within GRPO groups.
-    
-    GRPO generates multiple responses per prompt and ranks them. If responses
-    become too similar (low diversity), the group-relative advantage signal weakens.
-    
-    Tracked via: unique n-grams, edit distance variance, or embedding variance.
-    """
     diversity_col = None
     for col in ["response_diversity", "group_diversity", "intra_group_variance", 
                 "unique_ngram_ratio", "embedding_variance"]:
@@ -1363,13 +1065,7 @@ def detect_grpo_response_diversity_collapse(df: pd.DataFrame, window: int = 30,
             )]
     return []
 
-
-# =============================================================================
-# REWARD MODEL HEURISTICS
-# =============================================================================
-
 def detect_reward_model_imbalance(df: pd.DataFrame) -> List[Insight]:
-    """Detect reward model imbalance (high reward with concerning signals)."""
     if "reward_mean" not in df.columns or "kl" not in df.columns:
         return []
     
@@ -1395,12 +1091,6 @@ def detect_reward_model_imbalance(df: pd.DataFrame) -> List[Insight]:
         )]
     return []
 
-
-# =============================================================================
-# MAIN ENTRY POINT
-# =============================================================================
-
-# Heuristic registry by trainer type
 COMMON_HEURISTICS = [
     detect_reward_variance_spikes,
     detect_kl_instability,
@@ -1438,19 +1128,19 @@ SFT_HEURISTICS = [
 
 ORPO_HEURISTICS = [
     detect_orpo_odds_ratio_instability,
-    detect_dpo_win_rate_instability,  # Also applicable to ORPO
-    detect_dpo_margin_collapse,  # Also applicable to ORPO
+    detect_dpo_win_rate_instability,
+    detect_dpo_margin_collapse,
     detect_win_rate_plateau,
 ]
 
 KTO_HEURISTICS = [
     detect_kto_imbalance,
-    detect_dpo_win_rate_instability,  # Also applicable to KTO
+    detect_dpo_win_rate_instability,
     detect_win_rate_plateau,
 ]
 
 CPO_HEURISTICS = [
-    detect_dpo_win_rate_instability,  # Similar preference learning
+    detect_dpo_win_rate_instability,
     detect_dpo_margin_collapse,
     detect_win_rate_plateau,
 ]
@@ -1467,7 +1157,6 @@ GRPO_HEURISTICS = [
     detect_grpo_response_diversity_collapse,
 ]
 
-
 def run_heuristics(
     df: pd.DataFrame,
     trainer_type: str = TrainerType.UNKNOWN,
@@ -1475,32 +1164,13 @@ def run_heuristics(
     custom_yaml_dirs: Optional[List[str]] = None,
     disable_yaml_heuristics: bool = False,
 ) -> List[Insight]:
-    """Run heuristics appropriate for the detected trainer type.
-
-    This runs both Python-based heuristics and YAML-based heuristics (if pyyaml
-    is installed). YAML heuristics can be customized via:
-    - custom_alerts: Inline alert strings (e.g., "dpo: margin < 0.1 -> high: Alert")
-    - custom_yaml_dirs: Directories containing custom YAML heuristic files
-
-    Args:
-        df: DataFrame with training metrics
-        trainer_type: One of 'dpo', 'ppo', 'sft', 'orpo', 'kto', 'cpo', 'grpo', 'unknown'
-        custom_alerts: Optional list of inline alert strings
-        custom_yaml_dirs: Optional list of directories with custom YAML heuristics
-        disable_yaml_heuristics: If True, skip YAML-based heuristics entirely
-
-    Returns:
-        List of Insight objects, sorted by severity (high → medium → low)
-    """
     from pathlib import Path
 
     insights: List[Insight] = []
 
-    # Always run common heuristics
     for heuristic in COMMON_HEURISTICS:
         insights.extend(heuristic(df))
 
-    # Run trainer-specific heuristics
     if trainer_type == TrainerType.DPO:
         for heuristic in DPO_HEURISTICS:
             insights.extend(heuristic(df))
@@ -1523,16 +1193,13 @@ def run_heuristics(
         for heuristic in GRPO_HEURISTICS:
             insights.extend(heuristic(df))
     else:
-        # Unknown trainer - run all heuristics for best coverage
         for heuristic in DPO_HEURISTICS + PPO_HEURISTICS + SFT_HEURISTICS + GRPO_HEURISTICS:
             insights.extend(heuristic(df))
 
-    # Run YAML-based heuristics if not disabled and pyyaml is available
     if not disable_yaml_heuristics:
         try:
             from post_training_toolkit.heuristics.executor import run_yaml_heuristics
 
-            # Convert custom_yaml_dirs to Path objects if provided
             yaml_dirs = None
             if custom_yaml_dirs:
                 yaml_dirs = [Path(d) for d in custom_yaml_dirs]
@@ -1546,13 +1213,10 @@ def run_heuristics(
             )
             insights.extend(yaml_insights)
         except ImportError:
-            # pyyaml not installed - skip YAML heuristics silently
             pass
         except Exception:
-            # Other errors - skip YAML heuristics silently to not break existing code
             pass
 
-    # Deduplicate insights by type (prefer Python-based over YAML-based)
     seen_types: Set[str] = set()
     deduped_insights: List[Insight] = []
     for insight in insights:
@@ -1560,16 +1224,10 @@ def run_heuristics(
             deduped_insights.append(insight)
             seen_types.add(insight.type)
 
-    # Sort by severity
     severity_rank = {"high": 0, "medium": 1, "low": 2}
     deduped_insights.sort(key=lambda x: severity_rank.get(x.severity, 3))
 
     return deduped_insights
 
-
 def run_all_heuristics(df: pd.DataFrame) -> List[Insight]:
-    """Run all heuristics regardless of trainer type (backward compatibility).
-    
-    Deprecated: Use run_heuristics(df, trainer_type) for trainer-aware detection.
-    """
     return run_heuristics(df, trainer_type=TrainerType.UNKNOWN)

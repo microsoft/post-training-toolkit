@@ -1,31 +1,24 @@
-"""Pytest configuration and shared fixtures."""
 import pytest
 import tempfile
 import json
 from pathlib import Path
 
-
 @pytest.fixture
 def temp_dir():
-    """Create a temporary directory for test artifacts."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
 
-
 @pytest.fixture
 def sample_metrics_file(temp_dir):
-    """Create a sample metrics JSONL file."""
     metrics_path = temp_dir / "metrics.jsonl"
     
     with open(metrics_path, "w") as f:
-        # Header
         f.write(json.dumps({
             "type": "header",
             "trainer_type": "dpo",
             "timestamp": "2025-01-01T00:00:00Z"
         }) + "\n")
         
-        # Metrics
         for step in range(100):
             f.write(json.dumps({
                 "step": step,
@@ -39,7 +32,6 @@ def sample_metrics_file(temp_dir):
                 }
             }) + "\n")
         
-        # Footer
         f.write(json.dumps({
             "type": "footer",
             "total_steps": 100,
@@ -48,15 +40,11 @@ def sample_metrics_file(temp_dir):
     
     return metrics_path
 
-
 @pytest.fixture
 def sample_run_dir(temp_dir, sample_metrics_file):
-    """Create a complete sample run directory."""
-    # Create subdirectories
     (temp_dir / "snapshots").mkdir()
     (temp_dir / "checkpoints").mkdir()
     
-    # Create run metadata
     metadata_path = temp_dir / "run_metadata.json"
     with open(metadata_path, "w") as f:
         json.dump({

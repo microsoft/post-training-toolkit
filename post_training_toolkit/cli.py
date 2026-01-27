@@ -1,13 +1,10 @@
-"""Command-line interface for post-training-toolkit."""
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
 
-
 def diagnose_cli():
-    """Run diagnostics on a training run."""
     parser = argparse.ArgumentParser(
         description="Run diagnostics on RLHF training logs",
         prog="ptt-diagnose",
@@ -54,9 +51,7 @@ def diagnose_cli():
         print(f"✗ Error: {e}", file=sys.stderr)
         return 1
 
-
 def compare_cli():
-    """Compare checkpoints and recommend the best one."""
     parser = argparse.ArgumentParser(
         description="Compare checkpoints and get recommendation",
         prog="ptt-compare",
@@ -120,9 +115,7 @@ Candidates (ranked by score):
         print(f"✗ Error: {e}", file=sys.stderr)
         return 1
 
-
 def validate_resume_cli():
-    """Validate a training run resume."""
     parser = argparse.ArgumentParser(
         description="Validate resume from checkpoint",
         prog="ptt-validate-resume",
@@ -189,14 +182,10 @@ Expected next step: {result.expected_next_step}
         print(f"✗ Error: {e}", file=sys.stderr)
         return 1
 
-
 if __name__ == "__main__":
-    # Default to diagnose if run directly
     sys.exit(diagnose_cli())
 
-
 def agent_diagnose_cli():
-    """Run diagnostics on agent traces."""
     parser = argparse.ArgumentParser(
         description="Run diagnostics on agent trace logs",
         prog="ptt-agent-diagnose",
@@ -239,14 +228,11 @@ def agent_diagnose_cli():
     import json
     
     try:
-        # Load traces
         runs = AgentRunLog.from_jsonl(args.input)
         print(f"Loaded {len(runs)} episodes from {args.input}", file=sys.stderr)
         
-        # Run diagnostics
         report = analyze_runs(runs, budget_per_episode=args.budget)
         
-        # Output report
         if args.format == "json":
             output = json.dumps({
                 "total_episodes": report.total_episodes,
@@ -277,7 +263,6 @@ def agent_diagnose_cli():
         else:
             print(output)
         
-        # Export DPO dataset if requested
         if args.export_dpo:
             try:
                 dataset = to_preference_pairs(

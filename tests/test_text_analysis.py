@@ -23,7 +23,6 @@ def create_snapshot(step, outputs):
     )
 
 def test_detect_verbosity_bias():
-    # Case 1: No bias
     snapshots = [
         create_snapshot(10, ["a" * 10]),
         create_snapshot(20, ["a" * 10]),
@@ -31,7 +30,6 @@ def test_detect_verbosity_bias():
     ]
     assert len(detect_verbosity_bias(snapshots)) == 0
     
-    # Case 2: Strong bias (doubling length)
     snapshots = [
         create_snapshot(10, ["a" * 10]),
         create_snapshot(20, ["a" * 20]),
@@ -42,11 +40,9 @@ def test_detect_verbosity_bias():
     assert insights[0].type == "verbosity_bias"
 
 def test_detect_repetition_loops():
-    # Case 1: Normal text
     snapshots = [create_snapshot(10, ["The quick brown fox jumps over the lazy dog."])]
     assert len(detect_repetition_loops(snapshots)) == 0
     
-    # Case 2: Repetitive text
     repetitive = "I apologize. " * 50
     snapshots = [create_snapshot(10, [repetitive])]
     insights = detect_repetition_loops(snapshots)
@@ -54,11 +50,9 @@ def test_detect_repetition_loops():
     assert insights[0].type == "repetition_collapse"
 
 def test_detect_pattern_collapse():
-    # Case 1: Diverse starts
     snapshots = [create_snapshot(10, ["Hello there", "What is this", "I think that"])]
     assert len(detect_pattern_collapse(snapshots)) == 0
     
-    # Case 2: Collapsed starts
     collapsed = ["As an AI language model" + str(i) for i in range(10)]
     snapshots = [create_snapshot(10, collapsed)]
     insights = detect_pattern_collapse(snapshots)

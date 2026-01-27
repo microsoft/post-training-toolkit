@@ -1,25 +1,9 @@
 #!/usr/bin/env python3
-"""
-Test the live warnings and auto-diagnostics features.
-
-This runs a quick DPO training to demonstrate:
-1. Live warnings during training (enable_live_warnings=True)
-2. Auto-stopping on critical issues (stop_on_critical=True)
-3. Auto-diagnostics at end (auto_diagnostics=True)
-
-Usage:
-    python demo/scripts/test_live_warnings.py
-
-The callback will print live warnings like:
-    [DiagnosticsCallback] ⚠️ MEDIUM at step 20: DPO loss stuck near 0.693
-    [DiagnosticsCallback] 🚨 HIGH at step 50: ...
-"""
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-# Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import torch
@@ -30,9 +14,7 @@ from peft import LoraConfig
 
 from post_training_toolkit import DiagnosticsCallback
 
-
 def create_tiny_preference_dataset(n_samples: int = 60) -> Dataset:
-    """Create a minimal preference dataset for demo purposes."""
     prompts = [
         "Explain what machine learning is in one sentence.",
         "What is the capital of France?",
@@ -80,7 +62,6 @@ def create_tiny_preference_dataset(n_samples: int = 60) -> Dataset:
     
     return Dataset.from_dict(data)
 
-
 def main():
     print("=" * 70)
     print("TESTING LIVE WARNINGS + AUTO-DIAGNOSTICS")
@@ -122,7 +103,7 @@ def main():
         per_device_eval_batch_size=2,
         gradient_accumulation_steps=2,
         learning_rate=5e-5,
-        logging_steps=1,  # Log every step to see live warnings
+        logging_steps=1,
         eval_strategy="steps",
         eval_steps=10,
         save_strategy="no",
@@ -145,22 +126,17 @@ def main():
         task_type="CAUSAL_LM",
     )
     
-    # NEW: Callback with live warnings enabled (default)
     diagnostics_callback = DiagnosticsCallback(
         run_dir=output_dir,
-        verbose=False,  # Keep False so we see live warnings more clearly
+        verbose=False,
         
-        # Live warnings (default ON)
         enable_live_warnings=True,
-        live_warning_interval=5,  # Check every 5 steps
+        live_warning_interval=5,
         
-        # Auto-stop on critical issues (OFF for demo so we see full output)
         stop_on_critical=False,
         
-        # Auto-diagnostics summary at end (default ON)
         auto_diagnostics=True,
         
-        # Snapshots disabled to speed up demo
         enable_snapshots=False,
     )
     
@@ -185,11 +161,9 @@ def main():
     
     trainer.train()
     
-    # Diagnostics summary is printed automatically by the callback
     
     print(f"\n✅ Detected trainer type: {diagnostics_callback.trainer_type.upper()}")
     print(f"   Metrics saved to: {output_dir / 'metrics.jsonl'}")
-
 
 if __name__ == "__main__":
     main()

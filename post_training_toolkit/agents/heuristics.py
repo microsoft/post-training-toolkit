@@ -1,19 +1,3 @@
-"""Agent-specific diagnostics and heuristics.
-
-Analyzes agent run logs to detect common failure modes:
-- Low success rate
-- Tool error spikes
-- Looping behavior (repeated tool patterns)
-- Token/cost runaway
-- Step count anomalies
-
-Example:
-    from post_training_toolkit.agents import AgentRunLog, analyze_runs
-    
-    runs = AgentRunLog.from_jsonl("agent_runs.jsonl")
-    report = analyze_runs(runs)
-    print(report)
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -22,38 +6,16 @@ import statistics
 
 from post_training_toolkit.agents.traces import AgentRunLog, Episode
 
-
 @dataclass
 class AgentInsight:
-    """A diagnostic insight from agent trace analysis.
-    
-    Attributes:
-        type: Unique identifier (e.g., "low_success_rate")
-        severity: "high", "medium", or "low"
-        message: Human-readable description
-        episodes: Episode IDs where this issue was detected
-        data: Additional diagnostic data
-    """
     type: str
-    severity: str  # "high", "medium", "low"
+    severity: str
     message: str
     episodes: List[str] = field(default_factory=list)
     data: Dict = field(default_factory=dict)
 
-
 @dataclass
 class AgentDiagnosticsReport:
-    """Full diagnostics report for agent runs.
-    
-    Attributes:
-        total_episodes: Number of episodes analyzed
-        success_rate: Overall success rate
-        avg_steps: Average steps per episode
-        avg_tokens: Average tokens per episode (if available)
-        total_cost: Total cost (if available)
-        tool_error_rate: Overall tool error rate
-        insights: List of detected issues
-    """
     total_episodes: int
     success_rate: float
     avg_steps: float
@@ -62,13 +24,11 @@ class AgentDiagnosticsReport:
     tool_error_rate: float
     insights: List[AgentInsight] = field(default_factory=list)
     
-    # Breakdown stats
     episodes_with_loops: int = 0
     episodes_with_tool_errors: int = 0
     step_distribution: Dict[str, float] = field(default_factory=dict)
     
     def __str__(self) -> str:
-        """Format as human-readable report."""
         lines = [
             "=" * 60,
             "AGENT DIAGNOSTICS REPORT",
@@ -129,16 +89,13 @@ class AgentDiagnosticsReport:
     
     @property
     def has_critical_issues(self) -> bool:
-        """Whether any high-severity issues were detected."""
         return any(i.severity == "high" for i in self.insights)
-
 
 def detect_low_success_rate(
     runs: AgentRunLog,
     threshold: float = 0.5,
     min_episodes: int = 5,
 ) -> List[AgentInsight]:
-    """Detect if success rate is below threshold."""
     if len(runs) < min_episodes:
         return []
     
@@ -151,17 +108,15 @@ def detect_low_success_rate(
             severity=severity,
             message=f"Success rate is {rate:.1%} (threshold: {threshold:.1%}). "
                     f"{len(failed)} episodes failed.",
-            episodes=failed[:10],  # Cap at 10
+            episodes=failed[:10],
             data={"success_rate": rate, "threshold": threshold, "failed_count": len(failed)},
         )]
     return []
-
 
 def detect_tool_error_spikes(
     runs: AgentRunLog,
     threshold: float = 0.2,
 ) -> List[AgentInsight]:
-    """Detect high tool error rates."""
     rate = runs.tool_error_rate
     if rate > threshold:
         severity = "high" if rate > 0.4 else "medium"
@@ -176,12 +131,10 @@ def detect_tool_error_spikes(
         )]
     return []
 
-
 def detect_loops(
     runs: AgentRunLog,
     min_repeats: int = 3,
 ) -> List[AgentInsight]:
-    """Detect episodes with repeated tool call patterns (loops)."""
     looping = []
     for episode in runs:
         if episode.has_repeated_tool_pattern(min_repeats=min_repeats):
@@ -199,13 +152,11 @@ def detect_loops(
         )]
     return []
 
-
 def detect_token_runaway(
     runs: AgentRunLog,
     threshold_multiplier: float = 3.0,
     min_episodes: int = 5,
 ) -> List[AgentInsight]:
-    """Detect episodes with unusually high token usage."""
     tokens = [e.total_tokens for e in runs if e.total_tokens is not None]
     if len(tokens) < min_episodes:
         return []
@@ -235,19 +186,17 @@ def detect_token_runaway(
         )]
     return []
 
-
 def detect_step_anomalies(
     runs: AgentRunLog,
     threshold_multiplier: float = 3.0,
     min_episodes: int = 5,
 ) -> List[AgentInsight]:
-    """Detect episodes with unusually high step counts."""
     if len(runs) < min_episodes:
         return []
     
     steps = [e.total_steps for e in runs]
     median = statistics.median(steps)
-    threshold = max(median * threshold_multiplier, 20)  # At least 20 steps
+    threshold = max(median * threshold_multiplier, 20)
     
     long_episodes = [
         e.episode_id for e in runs 
@@ -270,13 +219,11 @@ def detect_step_anomalies(
         )]
     return []
 
-
 def detect_cost_anomalies(
     runs: AgentRunLog,
     budget_per_episode: Optional[float] = None,
     threshold_multiplier: float = 3.0,
 ) -> List[AgentInsight]:
-    """Detect episodes that exceeded cost budgets."""
     costs = [e.total_cost for e in runs if e.total_cost is not None]
     if not costs:
         return []
@@ -301,7 +248,6 @@ def detect_cost_anomalies(
                 data={"budget": budget_per_episode, "overage": total_over},
             )]
     
-    # Check for outliers even without explicit budget
     median = statistics.median(costs)
     threshold = median * threshold_multiplier
     expensive = [
@@ -309,7 +255,7 @@ def detect_cost_anomalies(
         if e.total_cost is not None and e.total_cost > threshold
     ]
     
-    if expensive and len(expensive) < len(runs) * 0.2:  # Only flag if it's outliers
+    if expensive and len(expensive) < len(runs) * 0.2:
         return [AgentInsight(
             type="cost_outliers",
             severity="medium",
@@ -321,23 +267,12 @@ def detect_cost_anomalies(
     
     return []
 
-
 def analyze_runs(
     runs: AgentRunLog,
     budget_per_episode: Optional[float] = None,
 ) -> AgentDiagnosticsReport:
-    """Run all agent diagnostics and generate a report.
-    
-    Args:
-        runs: Agent run log to analyze
-        budget_per_episode: Optional cost budget per episode
-        
-    Returns:
-        AgentDiagnosticsReport with metrics and insights
-    """
     insights: List[AgentInsight] = []
     
-    # Run all heuristics
     insights.extend(detect_low_success_rate(runs))
     insights.extend(detect_tool_error_spikes(runs))
     insights.extend(detect_loops(runs))
@@ -345,11 +280,9 @@ def analyze_runs(
     insights.extend(detect_step_anomalies(runs))
     insights.extend(detect_cost_anomalies(runs, budget_per_episode=budget_per_episode))
     
-    # Compute additional stats
     episodes_with_loops = sum(1 for e in runs if e.has_repeated_tool_pattern())
     episodes_with_tool_errors = sum(1 for e in runs if e.tool_errors)
     
-    # Step distribution
     steps = [e.total_steps for e in runs]
     step_distribution = {}
     if steps:

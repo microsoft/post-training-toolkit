@@ -1,36 +1,3 @@
-"""Agent trace schema and loading utilities.
-
-Defines the canonical PTT Trace v1 format for agent runs.
-Users can either log directly in this format or write a simple adapter.
-
-Trace Format (JSONL):
-    Each line is a step event within an episode:
-    
-    {"episode_id": "ep_001", "step": 0, "type": "user_message", "content": "Find flights to Paris"}
-    {"episode_id": "ep_001", "step": 1, "type": "assistant_message", "content": "I'll search for flights..."}
-    {"episode_id": "ep_001", "step": 2, "type": "tool_call", "tool": "search_flights", "args": {"dest": "Paris"}}
-    {"episode_id": "ep_001", "step": 3, "type": "tool_result", "tool": "search_flights", "result": "...", "error": null}
-    {"episode_id": "ep_001", "step": 4, "type": "assistant_message", "content": "I found 3 flights..."}
-    {"episode_id": "ep_001", "step": 5, "type": "episode_end", "success": true, "reward": 1.0, "total_tokens": 1523}
-
-Minimal Required Fields:
-    - episode_id: str — unique identifier for the episode
-    - step: int — step number within episode (0-indexed)
-    - type: str — one of: user_message, assistant_message, tool_call, tool_result, episode_end
-
-Optional Fields:
-    - content: str — message content (for message types)
-    - tool: str — tool name (for tool_call/tool_result)
-    - args: dict — tool arguments (for tool_call)
-    - result: str — tool output (for tool_result)
-    - error: str|null — error message if tool failed
-    - success: bool — whether episode succeeded (for episode_end)
-    - reward: float — reward signal (for episode_end)
-    - total_tokens: int — tokens used in episode
-    - total_cost: float — cost in dollars
-    - timestamp: str — ISO timestamp
-    - metadata: dict — any additional data
-"""
 from __future__ import annotations
 
 import json
@@ -41,45 +8,24 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 import re
 
-
 class StepType(str, Enum):
-    """Types of steps in an agent trace."""
     USER_MESSAGE = "user_message"
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
-    # Model-side parse/validation issues (optional, for richer traces)
     TOOL_PARSE_ERROR = "tool_parse_error"
     EPISODE_END = "episode_end"
-    # Allow unknown types for flexibility
     OTHER = "other"
     
     @classmethod
     def from_str(cls, s: str) -> "StepType":
-        """Convert string to StepType, defaulting to OTHER for unknown."""
         try:
             return cls(s)
         except ValueError:
             return cls.OTHER
 
-
 @dataclass
 class Step:
-    """A single step in an agent episode.
-    
-    Attributes:
-        episode_id: Unique identifier for the episode
-        step: Step number within episode (0-indexed)
-        type: Type of step (message, tool call, etc.)
-        content: Message content (for message types)
-        tool: Tool name (for tool_call/tool_result)
-        args: Tool arguments (for tool_call)
-        result: Tool output (for tool_result)
-        error: Error message if step failed
-        timestamp: When this step occurred
-        tokens: Tokens used in this step
-        metadata: Additional step-level data
-    """
     episode_id: str
     step: int
     type: StepType
@@ -94,7 +40,6 @@ class Step:
     
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Step":
-        """Create Step from dictionary."""
         return cls(
             episode_id=d.get("episode_id", ""),
             step=d.get("step", 0),
@@ -110,7 +55,6 @@ class Step:
         )
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
         d = {
             "episode_id": self.episode_id,
             "step": self.step,
@@ -136,23 +80,10 @@ class Step:
     
     @property
     def is_tool_error(self) -> bool:
-        """Whether this step is a tool result with an error."""
         return self.type == StepType.TOOL_RESULT and self.error is not None
-
 
 @dataclass
 class Episode:
-    """A complete agent episode (one task attempt).
-    
-    Attributes:
-        episode_id: Unique identifier
-        steps: List of steps in order
-        success: Whether the episode succeeded (from episode_end)
-        reward: Reward signal (from episode_end)
-        total_tokens: Total tokens used
-        total_cost: Total cost in dollars
-        metadata: Episode-level metadata
-    """
     episode_id: str
     steps: List[Step] = field(default_factory=list)
     success: Optional[bool] = None
@@ -162,7 +93,6 @@ class Episode:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def _iter_text_fields(self) -> Iterator[str]:
-        """Yield text-like fields from steps for lightweight text analysis."""
         for s in self.steps:
             if s.content:
                 yield s.content
@@ -177,13 +107,11 @@ class Episode:
 
     @property
     def parse_error_steps(self) -> List[Step]:
-        """Steps that indicate a model-side tool parsing error."""
         out: List[Step] = []
         for s in self.steps:
             if s.type == StepType.TOOL_PARSE_ERROR:
                 out.append(s)
                 continue
-            # Back-compat: allow loggers to tag parse errors in metadata
             if s.metadata.get("parse_error") is True:
                 out.append(s)
         return out
@@ -194,37 +122,30 @@ class Episode:
     
     @property
     def total_steps(self) -> int:
-        """Number of steps in the episode."""
         return len(self.steps)
     
     @property
     def user_messages(self) -> List[Step]:
-        """Get all user message steps."""
         return [s for s in self.steps if s.type == StepType.USER_MESSAGE]
     
     @property
     def assistant_messages(self) -> List[Step]:
-        """Get all assistant message steps."""
         return [s for s in self.steps if s.type == StepType.ASSISTANT_MESSAGE]
     
     @property
     def tool_calls(self) -> List[Step]:
-        """Get all tool call steps."""
         return [s for s in self.steps if s.type == StepType.TOOL_CALL]
     
     @property
     def tool_results(self) -> List[Step]:
-        """Get all tool result steps."""
         return [s for s in self.steps if s.type == StepType.TOOL_RESULT]
     
     @property
     def tool_errors(self) -> List[Step]:
-        """Get all tool results that had errors."""
         return [s for s in self.steps if s.is_tool_error]
     
     @property
     def tool_error_rate(self) -> float:
-        """Fraction of tool calls that resulted in errors."""
         tool_results = self.tool_results
         if not tool_results:
             return 0.0
@@ -232,18 +153,15 @@ class Episode:
     
     @property
     def initial_prompt(self) -> Optional[str]:
-        """Get the initial user message (task prompt)."""
         user_msgs = self.user_messages
         return user_msgs[0].content if user_msgs else None
     
     @property
     def final_response(self) -> Optional[str]:
-        """Get the final assistant message."""
         asst_msgs = self.assistant_messages
         return asst_msgs[-1].content if asst_msgs else None
     
     def get_tool_call_sequence(self) -> List[str]:
-        """Get sequence of tool names called."""
         return [s.tool for s in self.tool_calls if s.tool]
 
     def _tool_call_arg_fingerprints(
@@ -251,11 +169,6 @@ class Episode:
         tool: Optional[str] = None,
         arg_key: Optional[str] = None,
     ) -> List[str]:
-        """Return normalized fingerprints for tool call args.
-
-        If arg_key is provided, only that argument value is fingerprinted.
-        Otherwise the whole args dict is fingerprinted.
-        """
         fps: List[str] = []
         for s in self.tool_calls:
             if tool is not None and s.tool != tool:
@@ -279,7 +192,6 @@ class Episode:
         tool: Optional[str] = None,
         arg_key: Optional[str] = None,
     ) -> List[str]:
-        """List repeated tool call arg fingerprints within an episode."""
         fps = self._tool_call_arg_fingerprints(tool=tool, arg_key=arg_key)
         seen: set[str] = set()
         repeated: set[str] = set()
@@ -295,10 +207,6 @@ class Episode:
         tool: str = "search",
         arg_keys: Optional[List[str]] = None,
     ) -> List[str]:
-        """Detect repeated search-like queries within an episode.
-
-        This is a best-effort utility: many toolkits use either `q` or `query`.
-        """
         if arg_keys is None:
             arg_keys = ["q", "query"]
         repeated: set[str] = set()
@@ -308,7 +216,6 @@ class Episode:
 
     @property
     def max_consecutive_tool_calls(self) -> int:
-        """Maximum run of consecutive tool calls (proxy for tool-call bursts)."""
         max_run = 0
         current = 0
         for s in self.steps:
@@ -320,21 +227,17 @@ class Episode:
         return max_run
 
     def has_burst_tool_calls(self, max_consecutive_threshold: int = 5) -> bool:
-        """Whether the episode exhibits a tool-call burst."""
         return self.max_consecutive_tool_calls > max_consecutive_threshold
 
     @staticmethod
     def _cjk_char_fraction(text: str) -> float:
-        """Approximate fraction of CJK characters in a string."""
         if not text:
             return 0.0
-        # Basic blocks: CJK Unified Ideographs + Extensions, Hiragana/Katakana, Hangul
         cjk = re.findall(r"[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u30FF\uAC00-\uD7AF]", text)
         return len(cjk) / max(1, len(text))
 
     @property
     def cjk_char_rate(self) -> float:
-        """Fraction of CJK characters across episode text fields."""
         texts = list(self._iter_text_fields())
         if not texts:
             return 0.0
@@ -342,17 +245,14 @@ class Episode:
         return self._cjk_char_fraction(joined)
     
     def has_repeated_tool_pattern(self, min_repeats: int = 3) -> bool:
-        """Check if there's a repeated tool call pattern (loop detection)."""
         tools = self.get_tool_call_sequence()
         if len(tools) < min_repeats:
             return False
         
-        # Check for simple repeats: same tool called N+ times in a row
         for i in range(len(tools) - min_repeats + 1):
             if len(set(tools[i:i + min_repeats])) == 1:
                 return True
         
-        # Check for pattern repeats: [A, B, A, B, A, B]
         for pattern_len in range(1, len(tools) // min_repeats + 1):
             pattern = tuple(tools[:pattern_len])
             repeats = 0
@@ -364,40 +264,14 @@ class Episode:
         
         return False
 
-
 class AgentRunLog:
-    """Collection of agent episodes loaded from traces.
-    
-    This is the main entry point for loading and working with agent traces.
-    
-    Example:
-        # Load from JSONL
-        runs = AgentRunLog.from_jsonl("agent_runs.jsonl")
-        
-        # Filter episodes
-        successful = runs.filter(lambda e: e.success)
-        
-        # Iterate
-        for episode in runs:
-            print(f"{episode.episode_id}: {episode.total_steps} steps")
-    """
     
     def __init__(self, episodes: List[Episode]):
-        """Initialize with list of episodes."""
         self._episodes = episodes
         self._by_id = {e.episode_id: e for e in episodes}
     
     @classmethod
     def from_jsonl(cls, path: Union[str, Path]) -> "AgentRunLog":
-        """Load traces from a JSONL file.
-        
-        Each line should be a step event with at least:
-        - episode_id: str
-        - step: int  
-        - type: str
-        
-        Steps are grouped into Episodes automatically.
-        """
         path = Path(path)
         steps_by_episode: Dict[str, List[Step]] = {}
         episode_metadata: Dict[str, Dict[str, Any]] = {}
@@ -413,7 +287,6 @@ class AgentRunLog:
                     steps_by_episode[step.episode_id] = []
                 steps_by_episode[step.episode_id].append(step)
                 
-                # Extract episode-level metadata from episode_end
                 if step.type == StepType.EPISODE_END:
                     episode_metadata[step.episode_id] = {
                         "success": obj.get("success"),
@@ -423,13 +296,11 @@ class AgentRunLog:
                         "metadata": obj.get("metadata", {}),
                     }
         
-        # Build episodes
         episodes = []
         for episode_id, steps in steps_by_episode.items():
             steps.sort(key=lambda s: s.step)
             meta = episode_metadata.get(episode_id, {})
             
-            # Sum tokens from steps if not in metadata
             total_tokens = meta.get("total_tokens")
             if total_tokens is None:
                 step_tokens = [s.tokens for s in steps if s.tokens is not None]
@@ -446,19 +317,15 @@ class AgentRunLog:
             )
             episodes.append(episode)
         
-        # Sort by episode_id for determinism
         episodes.sort(key=lambda e: e.episode_id)
         return cls(episodes)
     
     @classmethod
     def from_episodes(cls, episodes: List[Episode]) -> "AgentRunLog":
-        """Create from a list of Episode objects."""
         return cls(episodes)
     
     @classmethod
     def from_dicts(cls, records: List[Dict[str, Any]]) -> "AgentRunLog":
-        """Create from a list of step dictionaries."""
-        # Write to temp format and use from_jsonl logic
         steps_by_episode: Dict[str, List[Step]] = {}
         episode_metadata: Dict[str, Dict[str, Any]] = {}
         
@@ -514,11 +381,9 @@ class AgentRunLog:
     
     @property
     def episodes(self) -> List[Episode]:
-        """Get all episodes."""
         return self._episodes
     
     def filter(self, predicate: Callable[[Episode], bool]) -> "AgentRunLog":
-        """Filter episodes by predicate, return new AgentRunLog."""
         filtered = [e for e in self._episodes if predicate(e)]
         return AgentRunLog(filtered)
     
@@ -526,10 +391,6 @@ class AgentRunLog:
         self, 
         predicate: Callable[[Episode], bool]
     ) -> tuple["AgentRunLog", "AgentRunLog"]:
-        """Split into two AgentRunLogs based on predicate.
-        
-        Returns (matches, non_matches).
-        """
         matches = []
         non_matches = []
         for e in self._episodes:
@@ -540,13 +401,11 @@ class AgentRunLog:
         return AgentRunLog(matches), AgentRunLog(non_matches)
     
     def to_jsonl(self, path: Union[str, Path]) -> None:
-        """Write traces to JSONL file."""
         path = Path(path)
         with path.open("w", encoding="utf-8") as f:
             for episode in self._episodes:
                 for step in episode.steps:
                     f.write(json.dumps(step.to_dict()) + "\n")
-                # Write episode_end if not already present
                 has_end = any(s.type == StepType.EPISODE_END for s in episode.steps)
                 if not has_end:
                     end_step = {
@@ -560,10 +419,8 @@ class AgentRunLog:
                     }
                     f.write(json.dumps(end_step) + "\n")
     
-    # Aggregate statistics
     @property
     def success_rate(self) -> float:
-        """Fraction of episodes that succeeded."""
         with_status = [e for e in self._episodes if e.success is not None]
         if not with_status:
             return 0.0
@@ -571,14 +428,12 @@ class AgentRunLog:
     
     @property 
     def avg_steps(self) -> float:
-        """Average number of steps per episode."""
         if not self._episodes:
             return 0.0
         return sum(e.total_steps for e in self._episodes) / len(self._episodes)
     
     @property
     def avg_tokens(self) -> Optional[float]:
-        """Average tokens per episode (None if no token data)."""
         with_tokens = [e.total_tokens for e in self._episodes if e.total_tokens is not None]
         if not with_tokens:
             return None
@@ -586,7 +441,6 @@ class AgentRunLog:
     
     @property
     def total_cost(self) -> Optional[float]:
-        """Total cost across all episodes (None if no cost data)."""
         with_cost = [e.total_cost for e in self._episodes if e.total_cost is not None]
         if not with_cost:
             return None
@@ -594,7 +448,6 @@ class AgentRunLog:
     
     @property
     def tool_error_rate(self) -> float:
-        """Overall tool error rate across all episodes."""
         total_results = 0
         total_errors = 0
         for e in self._episodes:
