@@ -381,3 +381,406 @@ def get_gpu_summary() -> Dict[str, any]:
         }
     except Exception:
         return {}
+
+
+# =============================================================================
+# Multi-GPU Monitoring
+# =============================================================================
+
+
+@dataclass
+class GPUDeviceStatus:
+    """Status of a single GPU device."""
+    device_id: int
+    name: str
+    gpu_util_percent: float
+    memory_util_percent: float
+    memory_used_mb: float
+    memory_total_mb: float
+    temperature_c: Optional[float] = None
+    power_watts: Optional[float] = None
+    
+    @property
+    def memory_free_mb(self) -> float:
+        """Free memory in MB."""
+        return self.memory_total_mb - self.memory_used_mb
+    
+    @property
+    def is_idle(self) -> bool:
+        """Whether GPU appears idle (< 5% utilization)."""
+        return self.gpu_util_percent < 5.0
+    
+    @property
+    def is_active(self) -> bool:
+        """Whether GPU is actively computing (> 50% utilization)."""
+        return self.gpu_util_percent >= 50.0
+
+
+@dataclass 
+class MultiGPUSnapshot:
+    """Snapshot of all GPUs on the system."""
+    timestamp: float
+    devices: List[GPUDeviceStatus]
+    
+    @property
+    def device_count(self) -> int:
+        """Number of GPUs."""
+        return len(self.devices)
+    
+    @property
+    def active_count(self) -> int:
+        """Number of GPUs with >50% utilization."""
+        return sum(1 for d in self.devices if d.is_active)
+    
+    @property
+    def idle_count(self) -> int:
+        """Number of GPUs with <5% utilization."""
+        return sum(1 for d in self.devices if d.is_idle)
+    
+    @property
+    def avg_utilization(self) -> float:
+        """Average GPU utilization across all devices."""
+        if not self.devices:
+            return 0.0
+        return sum(d.gpu_util_percent for d in self.devices) / len(self.devices)
+    
+    @property
+    def min_utilization(self) -> float:
+        """Minimum GPU utilization."""
+        if not self.devices:
+            return 0.0
+        return min(d.gpu_util_percent for d in self.devices)
+    
+    @property
+    def max_utilization(self) -> float:
+        """Maximum GPU utilization."""
+        if not self.devices:
+            return 0.0
+        return max(d.gpu_util_percent for d in self.devices)
+    
+    def get_idle_devices(self) -> List[GPUDeviceStatus]:
+        """Get list of idle GPUs."""
+        return [d for d in self.devices if d.is_idle]
+    
+    def get_active_devices(self) -> List[GPUDeviceStatus]:
+        """Get list of active GPUs."""
+        return [d for d in self.devices if d.is_active]
+
+
+@dataclass
+class GPUImbalanceReport:
+    """Report on GPU utilization imbalance."""
+    has_imbalance: bool
+    idle_gpus: List[int]  # Device IDs of idle GPUs
+    active_gpus: List[int]  # Device IDs of active GPUs
+    utilization_spread: float  # max - min utilization
+    avg_utilization: float
+    severity: str  # "none", "minor", "moderate", "severe"
+    message: str
+    
+    def format(self) -> str:
+        """Format as human-readable string."""
+        lines = [
+            "GPU Imbalance Report",
+            "=" * 50,
+            f"Active GPUs: {len(self.active_gpus)} / {len(self.active_gpus) + len(self.idle_gpus)}",
+            f"Avg utilization: {self.avg_utilization:.1f}%",
+            f"Utilization spread: {self.utilization_spread:.1f}%",
+            f"Severity: {self.severity.upper()}",
+        ]
+        
+        if self.idle_gpus:
+            lines.append(f"⚠️  Idle GPUs: {self.idle_gpus}")
+        
+        lines.append(f"\n{self.message}")
+        
+        return "\n".join(lines)
+
+
+class MultiGPUMonitor:
+    """Monitor utilization across all GPUs on the system.
+    
+    Uses pynvml to query GPU state. Can detect:
+    - Which GPUs are idle vs active
+    - Utilization imbalance (e.g., 7 GPUs working, 1 stuck)
+    - Memory usage across all devices
+    
+    Example:
+        monitor = MultiGPUMonitor()
+        
+        # Get current state of all GPUs
+        snapshot = monitor.snapshot()
+        print(f"Active: {snapshot.active_count}/{snapshot.device_count}")
+        
+        # Check for imbalance
+        report = monitor.check_imbalance()
+        if report.has_imbalance:
+            print(f"⚠️ GPU imbalance: {report.idle_gpus} are idle!")
+        
+        # Pretty print all GPU status
+        print(monitor.format_status())
+    """
+    
+    def __init__(self, imbalance_threshold: float = 50.0):
+        """Initialize multi-GPU monitor.
+        
+        Args:
+            imbalance_threshold: Utilization difference (%) to flag as imbalance.
+                                 E.g., 50.0 means if one GPU is at 90% and another
+                                 at 30%, that's a 60% spread and would be flagged.
+        """
+        self.imbalance_threshold = imbalance_threshold
+        self._pynvml = _get_pynvml()
+        self._available = self._pynvml is not None
+        self._device_count = 0
+        
+        if self._available:
+            try:
+                self._device_count = self._pynvml.nvmlDeviceGetCount()
+            except Exception:
+                self._available = False
+    
+    @property
+    def available(self) -> bool:
+        """Whether GPU monitoring is available."""
+        return self._available
+    
+    @property
+    def device_count(self) -> int:
+        """Number of GPUs detected."""
+        return self._device_count
+    
+    def snapshot(self) -> Optional[MultiGPUSnapshot]:
+        """Take a snapshot of all GPU states.
+        
+        Returns:
+            MultiGPUSnapshot with status of all GPUs, or None if unavailable.
+        """
+        if not self._available:
+            return None
+        
+        devices = []
+        timestamp = time.time()
+        
+        for i in range(self._device_count):
+            try:
+                handle = self._pynvml.nvmlDeviceGetHandleByIndex(i)
+                
+                # Basic info
+                name = self._pynvml.nvmlDeviceGetName(handle)
+                if isinstance(name, bytes):
+                    name = name.decode('utf-8')
+                
+                # Utilization
+                util = self._pynvml.nvmlDeviceGetUtilizationRates(handle)
+                
+                # Memory
+                mem_info = self._pynvml.nvmlDeviceGetMemoryInfo(handle)
+                
+                # Temperature (optional)
+                try:
+                    temp = self._pynvml.nvmlDeviceGetTemperature(
+                        handle, self._pynvml.NVML_TEMPERATURE_GPU
+                    )
+                except Exception:
+                    temp = None
+                
+                # Power (optional)
+                try:
+                    power = self._pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0  # mW to W
+                except Exception:
+                    power = None
+                
+                devices.append(GPUDeviceStatus(
+                    device_id=i,
+                    name=name,
+                    gpu_util_percent=util.gpu,
+                    memory_util_percent=util.memory,
+                    memory_used_mb=mem_info.used / 1024 / 1024,
+                    memory_total_mb=mem_info.total / 1024 / 1024,
+                    temperature_c=temp,
+                    power_watts=power,
+                ))
+                
+            except Exception as e:
+                # If one GPU fails, add placeholder
+                devices.append(GPUDeviceStatus(
+                    device_id=i,
+                    name=f"GPU {i} (error)",
+                    gpu_util_percent=0.0,
+                    memory_util_percent=0.0,
+                    memory_used_mb=0.0,
+                    memory_total_mb=0.0,
+                ))
+        
+        return MultiGPUSnapshot(timestamp=timestamp, devices=devices)
+    
+    def check_imbalance(self) -> Optional[GPUImbalanceReport]:
+        """Check for GPU utilization imbalance.
+        
+        Detects scenarios like:
+        - One GPU stuck/idle while others are working
+        - Uneven load distribution
+        
+        Returns:
+            GPUImbalanceReport, or None if monitoring unavailable.
+        """
+        snapshot = self.snapshot()
+        if snapshot is None or snapshot.device_count == 0:
+            return None
+        
+        idle_gpus = [d.device_id for d in snapshot.get_idle_devices()]
+        active_gpus = [d.device_id for d in snapshot.get_active_devices()]
+        
+        spread = snapshot.max_utilization - snapshot.min_utilization
+        avg_util = snapshot.avg_utilization
+        
+        # Determine severity
+        has_imbalance = False
+        severity = "none"
+        message = "All GPUs are balanced."
+        
+        if snapshot.device_count > 1:
+            # Check if some GPUs are idle while others are active
+            if idle_gpus and active_gpus:
+                has_imbalance = True
+                severity = "severe"
+                message = (
+                    f"⚠️ {len(idle_gpus)} GPU(s) idle while {len(active_gpus)} are active! "
+                    f"Idle: {idle_gpus}. This may indicate a stuck process, "
+                    f"NCCL hang, or load imbalance."
+                )
+            elif spread >= self.imbalance_threshold:
+                has_imbalance = True
+                if spread >= 70:
+                    severity = "severe"
+                elif spread >= 50:
+                    severity = "moderate"
+                else:
+                    severity = "minor"
+                
+                message = (
+                    f"Utilization spread of {spread:.0f}% across GPUs. "
+                    f"Min: {snapshot.min_utilization:.0f}%, Max: {snapshot.max_utilization:.0f}%."
+                )
+        
+        return GPUImbalanceReport(
+            has_imbalance=has_imbalance,
+            idle_gpus=idle_gpus,
+            active_gpus=active_gpus,
+            utilization_spread=spread,
+            avg_utilization=avg_util,
+            severity=severity,
+            message=message,
+        )
+    
+    def format_status(self, compact: bool = False) -> str:
+        """Format current GPU status as a string.
+        
+        Args:
+            compact: If True, single-line format. If False, detailed multi-line.
+            
+        Returns:
+            Formatted string showing all GPU states.
+        """
+        snapshot = self.snapshot()
+        if snapshot is None:
+            return "GPU monitoring unavailable (pynvml not installed or no GPUs)"
+        
+        if compact:
+            # Single line: GPU 0: 94% | GPU 1: 93% | GPU 2: 0% ⚠️ | ...
+            parts = []
+            for d in snapshot.devices:
+                status = f"GPU {d.device_id}: {d.gpu_util_percent:.0f}%"
+                if d.is_idle and snapshot.active_count > 0:
+                    status += " ⚠️"
+                parts.append(status)
+            return " | ".join(parts)
+        
+        else:
+            # Detailed multi-line format
+            lines = [
+                f"GPU Status ({snapshot.device_count} devices)",
+                "=" * 60,
+            ]
+            
+            for d in snapshot.devices:
+                idle_marker = " ⚠️ IDLE" if d.is_idle and snapshot.active_count > 0 else ""
+                lines.append(
+                    f"  GPU {d.device_id} ({d.name}){idle_marker}"
+                )
+                lines.append(
+                    f"    Compute: {d.gpu_util_percent:5.1f}%  |  "
+                    f"Memory: {d.memory_used_mb:,.0f} / {d.memory_total_mb:,.0f} MB ({d.memory_util_percent:.0f}%)"
+                )
+                
+                extras = []
+                if d.temperature_c is not None:
+                    extras.append(f"Temp: {d.temperature_c}°C")
+                if d.power_watts is not None:
+                    extras.append(f"Power: {d.power_watts:.0f}W")
+                if extras:
+                    lines.append(f"    {' | '.join(extras)}")
+                lines.append("")
+            
+            # Summary
+            lines.append(f"Summary: {snapshot.active_count} active, {snapshot.idle_count} idle")
+            lines.append(f"Avg utilization: {snapshot.avg_utilization:.1f}%")
+            
+            return "\n".join(lines)
+
+
+def get_all_gpu_utilization() -> Optional[List[Dict[str, float]]]:
+    """Quick function to get utilization of all GPUs.
+    
+    Returns:
+        List of dicts with gpu_util and memory_util per device,
+        or None if unavailable.
+        
+    Example:
+        >>> get_all_gpu_utilization()
+        [
+            {'device_id': 0, 'gpu_util': 94.0, 'memory_util': 45.0},
+            {'device_id': 1, 'gpu_util': 92.0, 'memory_util': 44.0},
+            {'device_id': 2, 'gpu_util': 0.0, 'memory_util': 5.0},  # ← stuck!
+            ...
+        ]
+    """
+    monitor = MultiGPUMonitor()
+    snapshot = monitor.snapshot()
+    
+    if snapshot is None:
+        return None
+    
+    return [
+        {
+            'device_id': d.device_id,
+            'gpu_util': d.gpu_util_percent,
+            'memory_util': d.memory_util_percent,
+        }
+        for d in snapshot.devices
+    ]
+
+
+def check_gpu_health() -> Tuple[bool, str]:
+    """Quick health check for all GPUs.
+    
+    Returns:
+        Tuple of (is_healthy, message).
+        is_healthy is False if there's a severe imbalance.
+        
+    Example:
+        >>> healthy, msg = check_gpu_health()
+        >>> if not healthy:
+        ...     print(f"GPU issue: {msg}")
+    """
+    monitor = MultiGPUMonitor()
+    report = monitor.check_imbalance()
+    
+    if report is None:
+        return True, "GPU monitoring unavailable"
+    
+    if report.severity == "severe":
+        return False, report.message
+    
+    return True, f"GPUs healthy. Avg utilization: {report.avg_utilization:.0f}%"
