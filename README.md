@@ -1,69 +1,38 @@
 # Post-Training Toolkit
 
-**Training diagnostics and control for long-horizon TRL runs.**
+Diagnostics and training control for long-horizon RL with TRL.
 
-Post-Training Toolkit (PTT) is a diagnostics and training control layer for RLHF and agent post-training with Hugging Face TRL. Add a single callback to your TRL trainer to make long-running training dynamics observable, debuggable, and controllable under scale.
-
-PTT is designed for expensive, unattended training jobs where correctness depends on detecting and intervening in failure modes before aggregate metrics make them obvious.
+Add one callback to your TRL trainer to get live heuristics, failure-conditioned control, distributed profiling, and reproducible artifacts for post-training runs (DPO, PPO, GRPO, SFT, ORPO, KTO, CPO).
 
 ---
 
-## What this is (systems lens)
+## What this is
 
-PTT is a production-style diagnostics **and control** layer for TRL trainers:
+Post-Training Toolkit (PTT) is a production-style **diagnostics and control layer** for TRL trainers, designed for long-running and expensive RL jobs where training correctness matters.
 
-- Auto-detecting integration with TRL trainers (DPO, PPO, GRPO, SFT, ORPO, KTO, CPO)
+It makes training dynamics observable and enables deterministic intervention when runs drift into unreliable regimes.
+
+**Key capabilities**
+- Auto-detecting integration for TRL trainers
 - Live heuristics over training metrics (Python + YAML)
-- Failure-conditioned training control via `TrainerControl`
-- Behavior snapshots and diffs to track model drift and refusal changes
+- Failure-conditioned training control on critical or high-severity issues
+- Behavior snapshots and diffs to track drift and refusal changes
 - Distributed profiling (stragglers, throughput, memory balance)
-- Provenance and artifacts designed for real training platforms
+- Auditable artifacts for real training platforms
 
-This is the kind of infrastructure you build after you’ve burned a lot of GPU hours and never want to debug a bad run in the dark again.
+This is infrastructure you build after you’ve burned GPU hours and don’t want to debug bad runs in the dark again.
 
----
+## Why it matters
 
-## Why it matters operationally
+Post-training failures rarely appear as clean crashes. More often, training silently degrades long before aggregate metrics flag a problem.
 
-Post-training runs often fail gradually and silently. Loss, reward, or KL can look stable long after training dynamics have entered an unreliable regime.
+PTT is built to:
+- Detect NaNs, divergence, margin collapse, KL spikes, reward variance spikes, and truncation
+- Make long unattended and multi-GPU runs debuggable via snapshots, diffs, and postmortems
+- Encode paper-inspired and practitioner heuristics in extensible YAML + Python
+- Produce reproducible artifacts that plug into experiment trackers
 
-PTT is built to surface and act on those failure modes early:
-
-- Detects NaNs, divergence, margin collapse, KL spikes, reward variance spikes, and truncated outputs
-- Makes long unattended and multi-GPU jobs debuggable via snapshots, diffs, postmortems, and resume validation
-- Encodes both paper-inspired and practitioner heuristics in YAML + Python, extensible with lab-specific rules
-- Produces auditable artifacts (metrics, metadata, snapshots, diffs, reports) that plug cleanly into experiment tracking systems
-
-With `stop_on_critical=True`, PTT can also invalidate clearly broken runs early and record a recommended resume step.
-
----
-
-## From diagnostics to training control
-
-In long-horizon RL, failures rarely appear as sudden crashes. More often, training drifts into regimes where updates become unreliable long before aggregate metrics reflect a problem.
-
-PTT treats post-training as a **controlled system**, not a blind batch process. Diagnostics make failure modes observable; control hooks make them actionable.
-
-This enables deterministic intervention patterns such as pausing, stopping, or invalidating runs based on explicit heuristics, rather than reacting after a run has already consumed significant compute.
-
----
-
-## How it’s engineered (for people who build systems)
-
-The core design is intentionally simple and inspectable:
-
-- Auto-detecting TRL integration with CPU-level integration tests  
-  (see `tests/test_trl_integration.py`)
-- YAML-based heuristics engine over pandas DataFrames  
-  (see `post_training_toolkit/heuristics/executor.py`)
-- Built-in heuristics for DPO, PPO, GRPO, SFT, ORPO, KTO, CPO  
-  (see `post_training_toolkit/heuristics/builtin`)
-- Distributed straggler detection, throughput profiling, and memory balance analysis  
-  (see `post_training_toolkit/models/distributed` and `models/profiling`)
-- Artifact, checkpoint, and postmortem design suitable for real training platforms  
-  (see `models/artifacts.py`, `checkpoints.py`, `postmortem.py`)
-
-If you’re evaluating this as a codebase, those modules are the right place to start reading.
+With `stop_on_critical=True`, clearly invalid runs can be halted early and annotated with the last known-stable step.
 
 ---
 
@@ -71,3 +40,89 @@ If you’re evaluating this as a codebase, those modules are the right place to 
 
 ```bash
 pip install post-training-toolkit
+````
+
+PTT assumes you are using Hugging Face TRL for post-training.
+
+## Quick start
+
+Add a single callback to any TRL trainer to enable diagnostics and control:
+
+```python
+from post_training_toolkit import DiagnosticsCallback
+from trl import DPOTrainer
+
+trainer = DPOTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    callbacks=[
+        DiagnosticsCallback(
+            run_dir="ptt_run",
+            stop_on_critical=True,      # failure-conditioned training control
+            enable_live_warnings=True,  # emit live heuristic warnings
+        )
+    ],
+)
+
+trainer.train()
+```
+
+**Supported trainers**
+DPOTrainer, PPOTrainer (and PPOv2), GRPOTrainer, SFTTrainer, ORPOTrainer, KTOTrainer, CPOTrainer.
+
+At the end of a run, PTT produces:
+
+* `metrics.jsonl` – step-level trainer-aware metrics
+* `run_metadata*.json` – immutable provenance
+* `snapshots/` and `diffs/` – optional behavior tracking
+* `postmortem.json` – crash or invalidation context
+* `reports/` – auto-generated diagnostics summaries
+
+---
+
+## Heuristics and training control
+
+PTT maintains a rolling metric history and evaluates Python and YAML-defined heuristics against it.
+
+* Built-in heuristics for common RL failure modes
+* Trainer-specific YAML rules
+* Custom rules via inline definitions or a heuristics directory
+
+```python
+DiagnosticsCallback(
+    run_dir="ptt_run",
+    stop_on_critical=True,
+    custom_heuristics_dir="./my_heuristics",
+)
+```
+
+High-severity findings emit prominent warnings and can request control actions through TRL’s `TrainerControl` interface.
+
+## Distributed training
+
+The same callback works transparently with `torchrun` or Accelerate:
+
+* Aggregates metrics across ranks
+* Detects stragglers and slowdown
+* Tracks GPU memory balance and OOM risk
+* Writes artifacts only on the main process
+
+## Agent traces and datasets
+
+PTT also supports agent-trace analysis and dataset construction for outcome-driven post-training:
+
+```python
+from post_training_toolkit.agents import AgentRunLog, analyze_runs, to_preference_pairs
+```
+
+## CLI
+
+```bash
+ptt-diagnose --input ./my_run --make-plots
+ptt-agent-diagnose --input agent_runs.jsonl --export-dpo pairs.parquet
+```
+
+## License
+
+MIT
